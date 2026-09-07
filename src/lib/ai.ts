@@ -47,7 +47,8 @@ Rules:
 - Extract the amount as a positive number.
 - Map to the closest matching category from the available categories.
 - Resolve relative dates (yesterday, today, last week, etc.) to YYYY-MM-DD format.
-- Extract merchant/source if mentioned.
+- Extract merchant/payee/store/source if mentioned (e.g., "Starbucks", "Amazon", "Employer").
+- Extract notes as a short concise description/purpose of what was purchased or reason (e.g., "Dinner with team", "Groceries", "March Salary").
 - Determine the tag: "Need", "Want", "Invest", or "Transfer".
 - If you cannot confidently determine a required field (type, amount, category, date), list it in missingFields.
 - Set confidence from 0 to 1 based on how certain you are.
@@ -59,7 +60,7 @@ Respond ONLY with valid JSON in this exact format:
   "category": "category name",
   "date": "YYYY-MM-DD",
   "merchant": "merchant name or empty",
-  "notes": "any notes or empty",
+  "notes": "description / purpose or empty",
   "tag": "Need" | "Want" | "Invest" | "Transfer",
   "confidence": number,
   "missingFields": ["field names that need user input"]

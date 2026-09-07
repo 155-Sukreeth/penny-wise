@@ -210,6 +210,18 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
           </div>
         </div>
 
+        {/* Notes (Primary description / title) */}
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <label className="text-xs text-gray-500 font-medium block mb-2">Notes / Description (optional)</label>
+          <input
+            type="text"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="e.g. Grocery run, Team dinner, Bonus"
+            className="w-full text-sm text-gray-900 bg-gray-50 rounded-xl px-3.5 py-2.5 outline-none border border-gray-100 focus:border-gray-300"
+          />
+        </div>
+
         {/* Merchant with suggestions dropdown */}
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
           <label className="text-xs text-gray-500 font-medium block mb-2">Merchant / Payee / Source (optional)</label>
@@ -299,18 +311,6 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
               </button>
             ))}
           </div>
-        </div>
-
-        {/* Notes Toggle / Input */}
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-          <label className="text-xs text-gray-500 font-medium block mb-2">Notes</label>
-          <input
-            type="text"
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            placeholder="Add optional notes..."
-            className="w-full text-sm text-gray-900 bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
-          />
         </div>
       </div>
 

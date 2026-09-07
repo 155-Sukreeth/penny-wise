@@ -390,13 +390,17 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-medium text-gray-900 truncate">{t.merchant || t.category_name || "Transaction"}</span>
+                          <span className="text-sm font-medium text-gray-900 truncate">
+                            {t.notes?.trim() || t.category_name || "Transaction"}
+                          </span>
                           <span className={`text-[9px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${TAG_BG_COLORS[t.tag]}`}>
                             {t.tag}
                           </span>
                         </div>
                         <span className="text-xs text-gray-400 block truncate">
-                          {t.category_name}{t.account_name ? ` · ${t.account_name}` : ""}
+                          {t.notes?.trim()
+                            ? `${t.category_name || "Uncategorized"}${t.merchant ? ` · ${t.merchant}` : ""}${t.account_name ? ` · ${t.account_name}` : ""}`
+                            : `${t.merchant ? `${t.merchant} · ` : ""}${t.category_name || "Uncategorized"}${t.account_name ? ` · ${t.account_name}` : ""}`}
                         </span>
                       </div>
                       <span className={`text-sm font-semibold flex-shrink-0 ${t.type === "inflow" ? "text-emerald-600" : "text-gray-900"}`}>

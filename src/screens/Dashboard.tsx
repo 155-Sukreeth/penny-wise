@@ -451,9 +451,13 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
                   </div>
                   <div className="min-w-0">
                     <span className="text-sm font-medium text-gray-900 block truncate">
-                      {stats.largest.merchant || stats.largest.category_name || "Transaction"}
+                      {stats.largest.notes?.trim() || stats.largest.category_name || "Transaction"}
                     </span>
-                    <span className="text-xs text-gray-400">{stats.largest.category_name} · {relativeDate(stats.largest.date)}</span>
+                    <span className="text-xs text-gray-400 block truncate">
+                      {stats.largest.notes?.trim()
+                        ? `${stats.largest.category_name || "Uncategorized"}${stats.largest.merchant ? ` · ${stats.largest.merchant}` : ""}`
+                        : `${stats.largest.merchant ? `${stats.largest.merchant} · ` : ""}${stats.largest.category_name || "Uncategorized"}`} · {relativeDate(stats.largest.date)}
+                    </span>
                   </div>
                 </div>
                 <span className="text-base font-bold text-red-500">{formatCurrency(stats.largest.amount, settings)}</span>
@@ -477,8 +481,14 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
                       {t.type === "inflow" ? <ArrowUpRight size={15} className="text-emerald-600" /> : <ArrowDownRight size={15} className="text-red-500" />}
                     </div>
                     <div className="min-w-0">
-                      <span className="text-sm text-gray-800 block truncate">{t.merchant || t.category_name || "Transaction"}</span>
-                      <span className="text-xs text-gray-400">{t.category_name} · {relativeDate(t.date)}</span>
+                      <span className="text-sm text-gray-800 block truncate">
+                        {t.notes?.trim() || t.category_name || "Transaction"}
+                      </span>
+                      <span className="text-xs text-gray-400 block truncate">
+                        {t.notes?.trim()
+                          ? `${t.category_name || "Uncategorized"}${t.merchant ? ` · ${t.merchant}` : ""}`
+                          : `${t.merchant ? `${t.merchant} · ` : ""}${t.category_name || "Uncategorized"}`} · {relativeDate(t.date)}
+                      </span>
                     </div>
                   </div>
                   <span className={`text-sm font-medium flex-shrink-0 ${t.type === "inflow" ? "text-emerald-600" : "text-gray-900"}`}>
