@@ -1,0 +1,306 @@
+import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+};
+
+interface AISettings {
+  provider: "gemini" | "groq" | "openai" | "anthropic";
+  apiKey: string;
+  model?: string;
+}
+
+interface ParseRequest {
+  text: string;
+  categories: { name: string; type: string; tag: string }[];
+  accounts: { name: string; type: string }[];
+  today: string;
+}
+
+interface ImportRequest {
+  rows: string[];
+  categories: { name: string; type: string; tag: string }[];
+  accounts: { name: string; type: string }[];
+  today: string;
+}
+
+interface ParsedTransaction {
+  type: "inflow" | "outflow";
+  amount: number;
+  category: string;
+  date: string;
+  merchant: string;
+  notes: string;
+  account: string;
+  tag: string;
+  confidence: number;
+  missingFields: string[];
+}
+
+async function getAISettings(req: Request): Promise<AISettings | null> {
+  const body = await req.json();
+  const settings = body.aiSettings as AISettings;
+  if (!settings || !settings.provider || !settings.apiKey) return null;
+  return settings;
+}
+
+function buildParsePrompt(text: string, categories: { name: string; type: string; tag: string }[], today: string): string {
+  const inflowCats = categories.filter(c => c.type === "inflow").map(c => c.name).join(", ");
+  const outflowCats = categories.filter(c => c.type === "outflow").map(c => c.name).join(", ");
+
+  return `You are a financial transaction parser. Parse the following user input into a structured transaction.
+
+Today's date is: ${today}
+
+Available inflow categories: ${inflowCats}
+Available outflow categories: ${outflowCats}
+
+User input: "${text}"
+
+Rules:
+- Determine if this is an "inflow" (money coming in) or "outflow" (money going out).
+- Extract the amount as a positive number.
+- Map to the closest matching category from the available categories.
+- Resolve relative dates (yesterday, today, last week, etc.) to YYYY-MM-DD format.
+- Extract merchant/source if mentioned.
+- Determine the tag: "Need", "Want", "Invest", or "Transfer".
+- If you cannot confidently determine a required field (type, amount, category, date), list it in missingFields.
+- Set confidence from 0 to 1 based on how certain you are.
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "type": "inflow" | "outflow",
+  "amount": number,
+  "category": "category name",
+  "date": "YYYY-MM-DD",
+  "merchant": "merchant name or empty",
+  "notes": "any notes or empty",
+  "tag": "Need" | "Want" | "Invest" | "Transfer",
+  "confidence": number,
+  "missingFields": ["field names that need user input"]
+}`;
+}
+
+function buildImportPrompt(rows: string[], categories: { name: string; type: string; tag: string }[], today: string): string {
+  const inflowCats = categories.filter(c => c.type === "inflow").map(c => c.name).join(", ");
+  const outflowCats = categories.filter(c => c.type === "outflow").map(c => c.name).join(", ");
+
+  return `You are a financial statement import assistant. Convert the following bank statement rows into structured transactions.
+
+Today's date is: ${today}
+
+Available inflow categories: ${inflowCats}
+Available outflow categories: ${outflowCats}
+
+Bank statement rows (CSV/structured data):
+${rows.join("\n")}
+
+Rules:
+- For each row, determine if it's an "inflow" or "outflow" based on the amount sign or description.
+- Extract the amount as a positive number.
+- Map to the closest matching category from the available categories.
+- Convert dates to YYYY-MM-DD format.
+- Extract merchant/payee from the description.
+- Determine the tag: "Need", "Want", "Invest", or "Transfer".
+- Set confidence from 0 to 1.
+- If a row cannot be confidently parsed, set missingFields accordingly.
+
+Respond ONLY with valid JSON array in this exact format:
+[
+  {
+    "type": "inflow" | "outflow",
+    "amount": number,
+    "category": "category name",
+    "date": "YYYY-MM-DD",
+    "merchant": "merchant name or empty",
+    "notes": "any notes or empty",
+    "tag": "Need" | "Want" | "Invest" | "Transfer",
+    "confidence": number,
+    "missingFields": []
+  }
+]`;
+}
+
+async function callGemini(apiKey: string, prompt: string, model: string): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini API error: ${resp.status} ${err}`);
+  }
+  const data = await resp.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no content");
+  return text;
+}
+
+async function callGroq(apiKey: string, prompt: string, model: string): Promise<string> {
+  const url = "https://api.groq.com/openai/v1/chat/completions";
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 4096,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Groq API error: ${resp.status} ${err}`);
+  }
+  const data = await resp.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error("Groq returned no content");
+  return text;
+}
+
+async function callOpenAI(apiKey: string, prompt: string, model: string): Promise<string> {
+  const url = "https://api.openai.com/v1/chat/completions";
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 4096,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`OpenAI API error: ${resp.status} ${err}`);
+  }
+  const data = await resp.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error("OpenAI returned no content");
+  return text;
+}
+
+async function callAnthropic(apiKey: string, prompt: string, model: string): Promise<string> {
+  const url = "https://api.anthropic.com/v1/messages";
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Anthropic API error: ${resp.status} ${err}`);
+  }
+  const data = await resp.json();
+  const text = data?.content?.[0]?.text;
+  if (!text) throw new Error("Anthropic returned no content");
+  return text;
+}
+
+function extractJSON(text: string): unknown {
+  let cleaned = text.trim();
+  cleaned = cleaned.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const firstBrace = cleaned.indexOf(cleaned.startsWith("[") ? "[" : "{");
+  const lastBrace = cleaned.lastIndexOf(cleaned.startsWith("[") ? "]" : "}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
+  return JSON.parse(cleaned);
+}
+
+async function callAI(settings: AISettings, prompt: string): Promise<string> {
+  const models: Record<string, string> = {
+    gemini: settings.model || "gemini-1.5-flash",
+    groq: settings.model || "llama-3.3-70b-versatile",
+    openai: settings.model || "gpt-4o-mini",
+    anthropic: settings.model || "claude-3-5-sonnet-20241022",
+  };
+  const model = models[settings.provider];
+
+  switch (settings.provider) {
+    case "gemini":
+      return callGemini(settings.apiKey, prompt, model);
+    case "groq":
+      return callGroq(settings.apiKey, prompt, model);
+    case "openai":
+      return callOpenAI(settings.apiKey, prompt, model);
+    case "anthropic":
+      return callAnthropic(settings.apiKey, prompt, model);
+    default:
+      throw new Error(`Unsupported provider: ${settings.provider}`);
+  }
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  try {
+    const body = await req.json();
+    const settings = body.aiSettings as AISettings;
+    if (!settings?.apiKey) {
+      return new Response(
+        JSON.stringify({ error: "AI API key not configured. Please set up AI in Settings." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const action = body.action as "parse" | "import";
+    let prompt: string;
+
+    if (action === "parse") {
+      const { text, categories, today } = body as ParseRequest & { action: string };
+      if (!text) {
+        return new Response(
+          JSON.stringify({ error: "No text provided for parsing." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      prompt = buildParsePrompt(text, categories || [], today || new Date().toISOString().slice(0, 10));
+    } else if (action === "import") {
+      const { rows, categories, today } = body as ImportRequest & { action: string };
+      if (!rows || !Array.isArray(rows) || rows.length === 0) {
+        return new Response(
+          JSON.stringify({ error: "No rows provided for import." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const limitedRows = rows.slice(0, 100);
+      prompt = buildImportPrompt(limitedRows, categories || [], today || new Date().toISOString().slice(0, 10));
+    } else {
+      return new Response(
+        JSON.stringify({ error: "Invalid action. Use 'parse' or 'import'." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const rawResponse = await callAI(settings, prompt);
+    const parsed = extractJSON(rawResponse);
+
+    return new Response(
+      JSON.stringify({ result: parsed }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err.message || "AI processing failed" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
