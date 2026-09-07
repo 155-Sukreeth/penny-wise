@@ -187,51 +187,108 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
     setError(null);
   };
 
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const downloadOrShare = async (content: string, filename: string, mimeType: string) => {
+    try {
+      const blob = new Blob([content], { type: mimeType });
+
+      // Try Web Share API for mobile if supported
+      if (typeof navigator !== "undefined" && navigator.canShare) {
+        try {
+          const file = new File([blob], filename, { type: mimeType });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: filename,
+            });
+            setSuccessMsg("Export shared successfully!");
+            setTimeout(() => setSuccessMsg(null), 3000);
+            return;
+          }
+        } catch (shareErr) {
+          if ((shareErr as Error).name === "AbortError") {
+            return; // User cancelled share sheet
+          }
+        }
+      }
+
+      // Standard desktop download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(url);
+      }, 2000);
+
+      setSuccessMsg("File downloaded successfully!");
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err) {
+      console.error("Export error:", err);
+      setError("Failed to export file: " + (err instanceof Error ? err.message : "unknown error"));
+    }
+  };
+
   const handleExportCSV = async () => {
-    const transactions = await fetchTransactions({ limit: 10000 });
-    const headers = ["Date", "Type", "Amount", "Category", "Merchant", "Account", "Tag", "Notes"];
-    const rows = transactions.map(t => [
-      t.date, t.type, t.amount, t.category_name || "",
-      t.merchant || "", t.account_name || "", t.tag, (t.notes || "").replace(/,/g, ";"),
-    ]);
-    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setError(null);
+    try {
+      const transactions = await fetchTransactions({ limit: 50000 });
+      const headers = ["Date", "Type", "Amount", "Category", "Merchant", "Account", "Tag", "Notes"];
+      const rows = transactions.map(t => [
+        t.date,
+        t.type,
+        t.amount,
+        t.category_name || "",
+        t.merchant || "",
+        t.account_name || "",
+        t.tag,
+        (t.notes || "").replace(/"/g, '""'),
+      ]);
+      const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
+      const filename = `pennywise-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      await downloadOrShare(csv, filename, "text/csv");
+    } catch (e) {
+      setError("Failed to export CSV: " + (e instanceof Error ? e.message : "unknown error"));
+    }
   };
 
   const handleBackup = async () => {
-    const [txs, cats, accs, budgets, recurring, rules, settingsVal] = await Promise.all([
-      fetchTransactions({ limit: 50000 }),
-      fetchCategories(),
-      fetchAccounts(),
-      db.budgets.toArray(),
-      db.recurring_transactions.toArray(),
-      db.payee_rules.toArray(),
-      db.app_settings.get("app_settings"),
-    ]);
-    const backup = {
-      version: "1.0",
-      exportedAt: new Date().toISOString(),
-      transactions: txs,
-      categories: cats,
-      accounts: accs,
-      budgets,
-      recurringTransactions: recurring,
-      payeeRules: rules,
-      settings: settingsVal?.value,
-    };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `pennywise-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setError(null);
+    try {
+      const [txs, cats, accs, budgets, recurring, rules, settingsVal] = await Promise.all([
+        fetchTransactions({ limit: 50000 }),
+        fetchCategories(),
+        fetchAccounts(),
+        db.budgets.toArray(),
+        db.recurring_transactions.toArray(),
+        db.payee_rules.toArray(),
+        db.app_settings.get("app_settings"),
+      ]);
+      const backup = {
+        version: "1.0",
+        exportedAt: new Date().toISOString(),
+        transactions: txs,
+        categories: cats,
+        accounts: accs,
+        budgets,
+        recurringTransactions: recurring,
+        payeeRules: rules,
+        settings: settingsVal?.value,
+      };
+      const jsonStr = JSON.stringify(backup, null, 2);
+      const filename = `pennywise-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      await downloadOrShare(jsonStr, filename, "application/json");
+    } catch (e) {
+      setError("Failed to generate backup: " + (e instanceof Error ? e.message : "unknown error"));
+    }
   };
 
   const handleRestore = async (file: File) => {
@@ -319,6 +376,13 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
       <div className="px-4 pt-6 pb-4">
         <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-1">Data</h1>
         <p className="text-sm text-gray-500 mb-6">Import, export, and backup</p>
+
+        {successMsg && (
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 mb-4 flex items-start gap-2 animate-in fade-in">
+            <Check size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs font-medium text-emerald-700">{successMsg}</p>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4 flex items-start gap-2">

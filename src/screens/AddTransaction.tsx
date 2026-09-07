@@ -1,22 +1,21 @@
 import { useState, useEffect, useMemo } from "react";
-import { X, ArrowDownLeft, ArrowUpRight, Check, ChevronDown, Tag as TagIcon, Sparkles } from "lucide-react";
+import { X, ArrowDownLeft, ArrowUpRight, Check, Tag as TagIcon } from "lucide-react";
 import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import {
   fetchCategories, fetchAccounts, createTransaction, updateTransaction,
   fetchTransactions, findPayeeRule, createPayeeRule, fetchPayeeRules, type TransactionWithNames
 } from "@/lib/data";
-import { getTodayString } from "@/lib/format";
+import { getTodayString, formatInputAmount, parseInputAmount } from "@/lib/format";
 
 interface AddTransactionProps {
   settings: AppSettings;
   editId: string | null;
   onDone: () => void;
   onCancel: () => void;
-  onOpenAI?: () => void;
 }
 
-export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }: AddTransactionProps) {
+export function AddTransaction({ settings, editId, onDone, onCancel }: AddTransactionProps) {
   const [type, setType] = useState<TransactionType>("outflow");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
@@ -31,22 +30,28 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
   const [knownMerchants, setKnownMerchants] = useState<string[]>([]);
   const [existingTx, setExistingTx] = useState<TransactionWithNames | null>(null);
   const [saving, setSaving] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     fetchCategories().then(cats => {
       setCategories(cats);
-      const firstOutflow = cats.find(c => c.type === "outflow");
-      if (firstOutflow) {
-        setCategoryId(firstOutflow.id);
-        setTag(firstOutflow.tag);
+      if (!editId) {
+        const firstOutflow = cats.find(c => c.type === "outflow");
+        if (firstOutflow) {
+          setCategoryId(firstOutflow.id);
+          setTag(firstOutflow.tag);
+        }
       }
     });
 
-    fetchAccounts().then(accs => setAccounts(accs.map(a => ({ id: a.id, name: a.name }))));
+    fetchAccounts().then(accs => {
+      setAccounts(accs.map(a => ({ id: a.id, name: a.name })));
+      if (!editId && accs.length > 0) {
+        const def = accs.find(a => a.is_default);
+        setAccountId(def ? def.id : accs[0].id);
+      }
+    });
 
-    // Load past merchants for suggestions
-    Promise.all([fetchTransactions({ limit: 5000 }), fetchPayeeRules()]).then(([txs, rules]) => {
+    Promise.all([fetchTransactions({ limit: 1000 }), fetchPayeeRules()]).then(([txs, rules]) => {
       const set = new Set<string>();
       txs.forEach(t => { if (t.merchant?.trim()) set.add(t.merchant.trim()); });
       rules.forEach(r => { if (r.payee_name?.trim()) set.add(r.payee_name.trim()); });
@@ -61,7 +66,7 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
         if (tx) {
           setExistingTx(tx);
           setType(tx.type);
-          setAmount(String(tx.amount));
+          setAmount(tx.amount ? formatInputAmount(String(tx.amount), settings.currency) : "");
           setCategoryId(tx.category_id);
           setDate(tx.date);
           setAccountId(tx.account_id);
@@ -71,7 +76,7 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
         }
       });
     }
-  }, [editId]);
+  }, [editId, settings.currency]);
 
   const filteredCategories = useMemo(
     () => categories.filter(c => c.type === type),
@@ -93,10 +98,9 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
     if (cat) setTag(cat.tag);
   };
 
-  // Auto-categorize from merchant using payee rules or past transactions
   const handleMerchantSelect = async (val: string) => {
     setMerchant(val);
-    if (!autoCategorize || !val.trim()) return;
+    if (!val.trim()) return;
     const rule = await findPayeeRule(val.trim());
     if (rule) {
       setType(rule.type);
@@ -105,19 +109,11 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
         const cat = categories.find(c => c.id === rule.category_id);
         if (cat) setTag(cat.tag);
       }
-    } else {
-      // Look in past transactions
-      const past = await fetchTransactions({ merchant: val.trim(), limit: 1 });
-      if (past.length > 0 && past[0].category_id) {
-        setType(past[0].type);
-        setCategoryId(past[0].category_id);
-        setTag(past[0].tag);
-      }
     }
   };
 
   const handleSave = async () => {
-    const amt = parseFloat(amount);
+    const amt = parseInputAmount(amount);
     if (!amt || amt <= 0 || !categoryId || !date) return;
     setSaving(true);
     try {
@@ -134,7 +130,6 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
           notes: notes || null, tag, tags: [],
         });
 
-        // Save payee rule if auto-categorize is on and merchant is present
         if (autoCategorize && merchant.trim()) {
           const existing = await findPayeeRule(merchant.trim());
           if (!existing) {
@@ -154,7 +149,7 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
     }
   };
 
-  const canSave = parseFloat(amount) > 0 && categoryId && date;
+  const canSave = parseInputAmount(amount) > 0 && categoryId && date;
 
   return (
     <div className="px-4 pt-6 pb-20 min-h-screen flex flex-col">
@@ -166,7 +161,6 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
         <div className="w-9" />
       </div>
 
-      {/* Type toggle */}
       <div className="flex gap-2 mb-5">
         <button
           onClick={() => handleTypeChange("outflow")}
@@ -193,16 +187,15 @@ export function AddTransaction({ settings, editId, onDone, onCancel, onOpenAI }:
       </div>
 
       <div className="space-y-4 flex-1">
-        {/* Amount */}
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
           <label className="text-xs text-gray-500 font-medium block mb-2">Amount</label>
           <div className="flex items-center gap-2">
             <span className="text-2xl font-bold text-gray-400">{settings.currencySymbol}</span>
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
               value={amount}
-              onChange={e => setAmount(e.target.value)}
+              onChange={e => setAmount(formatInputAmount(e.target.value, settings.currency))}
               placeholder="0"
               autoFocus={!editId}
               className="text-2xl font-bold text-gray-900 bg-transparent outline-none flex-1 min-w-0"

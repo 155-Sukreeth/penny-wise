@@ -6,7 +6,7 @@ import {
   fetchRecurringTransactions, createRecurringTransaction, updateRecurringTransaction,
   deleteRecurringTransaction, fetchCategories, fetchAccounts, createTransaction
 } from "@/lib/data";
-import { formatCurrency, formatDate, getTodayString, relativeDate } from "@/lib/format";
+import { formatCurrency, formatDate, getTodayString, relativeDate, formatInputAmount, parseInputAmount } from "@/lib/format";
 
 export function Recurring({ settings }: { settings: AppSettings }) {
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([]);
@@ -61,7 +61,7 @@ export function Recurring({ settings }: { settings: AppSettings }) {
   const handleOpenEdit = (r: RecurringTransaction) => {
     setEditingId(r.id);
     setType(r.type);
-    setAmount(String(r.amount));
+    setAmount(r.amount ? formatInputAmount(String(r.amount), settings.currency) : "");
     setCategoryId(r.category_id);
     setAccountId(r.account_id);
     setMerchant(r.merchant || "");
@@ -76,7 +76,7 @@ export function Recurring({ settings }: { settings: AppSettings }) {
   };
 
   const handleSave = async () => {
-    const amt = parseFloat(amount);
+    const amt = parseInputAmount(amount);
     if (!amt || !categoryId) return;
 
     if (editingId) {
@@ -262,7 +262,15 @@ export function Recurring({ settings }: { settings: AppSettings }) {
                 <label className="text-xs text-gray-500 font-medium block mb-2">Amount</label>
                 <div className="flex items-center gap-2 px-3.5 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
                   <span className="text-lg font-bold text-gray-400">{settings.currencySymbol}</span>
-                  <input type="number" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus className="text-lg font-bold text-gray-900 bg-transparent outline-none flex-1" />
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={e => setAmount(formatInputAmount(e.target.value, settings.currency))}
+                    placeholder="0"
+                    autoFocus
+                    className="text-lg font-bold text-gray-900 bg-transparent outline-none flex-1"
+                  />
                 </div>
               </div>
 

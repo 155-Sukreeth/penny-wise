@@ -1,8 +1,13 @@
 import type { AppSettings } from "@/types";
 
+export function getLocaleForCurrency(currency?: string): string {
+  return currency === "INR" ? "en-IN" : "en-US";
+}
+
 export function formatCurrency(amount: number, settings: AppSettings): string {
   const symbol = settings.currencySymbol || "₹";
-  const formatted = new Intl.NumberFormat("en-IN", {
+  const locale = getLocaleForCurrency(settings.currency);
+  const formatted = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(Math.abs(amount));
@@ -11,12 +16,48 @@ export function formatCurrency(amount: number, settings: AppSettings): string {
 
 export function formatCurrencyWithSign(amount: number, settings: AppSettings): string {
   const symbol = settings.currencySymbol || "₹";
-  const formatted = new Intl.NumberFormat("en-IN", {
+  const locale = getLocaleForCurrency(settings.currency);
+  const formatted = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(Math.abs(amount));
   const sign = amount >= 0 ? "+" : "-";
   return `${sign}${symbol}${formatted}`;
+}
+
+export function formatInputAmount(value: string, currency?: string): string {
+  // Strip all non-digit and non-decimal characters
+  const clean = value.replace(/[^0-9.]/g, "");
+  if (!clean) return "";
+
+  const parts = clean.split(".");
+  const intPart = parts[0];
+  const decPart = parts.length > 1 ? parts.slice(1).join("") : null;
+
+  let formattedInt = "";
+  if (intPart) {
+    try {
+      const num = BigInt(intPart);
+      formattedInt = new Intl.NumberFormat(getLocaleForCurrency(currency)).format(num);
+    } catch {
+      formattedInt = intPart;
+    }
+  } else if (decPart !== null) {
+    formattedInt = "0";
+  }
+
+  if (decPart !== null) {
+    return `${formattedInt}.${decPart.slice(0, 2)}`;
+  }
+  return formattedInt;
+}
+
+export function parseInputAmount(value: string | number): number {
+  if (typeof value === "number") return value;
+  if (!value) return 0;
+  const clean = String(value).replace(/,/g, "");
+  const n = parseFloat(clean);
+  return isNaN(n) ? 0 : n;
 }
 
 export function formatDate(dateStr: string, settings: AppSettings): string {
