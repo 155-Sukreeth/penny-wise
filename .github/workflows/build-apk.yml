@@ -67,3 +67,12 @@ jobs:
           files: release-assets/PennyWise.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Vercel PWA Deployment
+        if: (github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')) && env.VERCEL_HOOK != ''
+        run: |
+          echo "Triggering Vercel Deploy Hook..."
+          curl -s -X POST "$VERCEL_HOOK"
+        env:
+          VERCEL_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+
