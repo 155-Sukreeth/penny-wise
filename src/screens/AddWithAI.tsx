@@ -4,24 +4,12 @@ import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchCategories, fetchAccounts, createTransaction, createPayeeRule, findPayeeRule } from "@/lib/data";
 import { getTodayString, formatDate } from "@/lib/format";
-import { AI_PROXY_URL } from "@/lib/supabase";
+import { parseTransactionWithAI, type ParsedTransaction as AIParsedTransaction } from "@/lib/ai";
 
 interface AddWithAIProps {
   settings: AppSettings;
   onDone: () => void;
   onCancel: () => void;
-}
-
-interface AIParsedTransaction {
-  type: TransactionType;
-  amount: number;
-  category: string;
-  date: string;
-  merchant: string;
-  notes: string;
-  tag: TagType;
-  confidence: number;
-  missingFields: string[];
 }
 
 export function AddWithAI({ settings, onDone, onCancel }: AddWithAIProps) {
@@ -59,25 +47,12 @@ export function AddWithAI({ settings, onDone, onCancel }: AddWithAIProps) {
       const cats = await fetchCategories();
       const catData = cats.map(c => ({ name: c.name, type: c.type, tag: c.tag }));
 
-      const resp = await fetch(AI_PROXY_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "parse",
-          text: input.trim(),
-          categories: catData,
-          today: getTodayString(),
-          aiSettings: settings.aiSettings,
-        }),
-      });
-
-      if (!resp.ok) {
-        const errData = await resp.json();
-        throw new Error(errData.error || `Request failed (${resp.status})`);
-      }
-
-      const data = await resp.json();
-      const result = data.result as AIParsedTransaction;
+      const result = await parseTransactionWithAI(
+        input.trim(),
+        catData,
+        getTodayString(),
+        settings.aiSettings
+      );
 
       if (!result || typeof result !== "object") {
         throw new Error("AI returned an unexpected response");

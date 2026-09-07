@@ -1,75 +1,86 @@
-import { supabase } from "./supabase";
-import type { Category, Account, Transaction, Budget, RecurringTransaction, PayeeRule, TagType, TransactionType } from "@/types";
-
-export async function fetchCategories(): Promise<Category[]> {
-  const { data, error } = await supabase
-    .from("categories")
-    .select("*")
-    .order("sort_order", { ascending: true });
-  if (error) throw error;
-  return data || [];
-}
-
-export async function createCategory(cat: Partial<Category>): Promise<Category> {
-  const { data, error } = await supabase
-    .from("categories")
-    .insert(cat)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-export async function updateCategory(id: string, updates: Partial<Category>): Promise<void> {
-  const { error } = await supabase.from("categories").update(updates).eq("id", id);
-  if (error) throw error;
-}
-
-export async function deleteCategory(id: string): Promise<void> {
-  const { error } = await supabase.from("categories").delete().eq("id", id);
-  if (error) throw error;
-}
-
-export async function reorderCategories(categories: Category[]): Promise<void> {
-  const updates = categories.map((c, i) => ({ id: c.id, sort_order: i + 1 }));
-  for (const u of updates) {
-    await supabase.from("categories").update({ sort_order: u.sort_order }).eq("id", u.id);
-  }
-}
-
-export async function fetchAccounts(): Promise<Account[]> {
-  const { data, error } = await supabase
-    .from("accounts")
-    .select("*")
-    .order("sort_order", { ascending: true });
-  if (error) throw error;
-  return data || [];
-}
-
-export async function createAccount(acc: Partial<Account>): Promise<Account> {
-  const { data, error } = await supabase
-    .from("accounts")
-    .insert(acc)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-export async function updateAccount(id: string, updates: Partial<Account>): Promise<void> {
-  const { error } = await supabase.from("accounts").update(updates).eq("id", id);
-  if (error) throw error;
-}
-
-export async function deleteAccount(id: string): Promise<void> {
-  const { error } = await supabase.from("accounts").delete().eq("id", id);
-  if (error) throw error;
-}
+import { db, ensureInitialized } from "./db";
+import type {
+  Category,
+  Account,
+  Transaction,
+  Budget,
+  RecurringTransaction,
+  PayeeRule,
+  TagType,
+  TransactionType,
+} from "@/types";
 
 export interface TransactionWithNames extends Transaction {
   category_name?: string | null;
   category_tag?: TagType | null;
   account_name?: string | null;
+}
+
+export async function fetchCategories(): Promise<Category[]> {
+  await ensureInitialized();
+  return db.categories.orderBy("sort_order").toArray();
+}
+
+export async function createCategory(cat: Partial<Category>): Promise<Category> {
+  await ensureInitialized();
+  const maxOrder = (await db.categories.count()) + 1;
+  const newCat: Category = {
+    id: cat.id || crypto.randomUUID(),
+    name: cat.name || "",
+    type: cat.type || "outflow",
+    tag: cat.tag || "Want",
+    sort_order: cat.sort_order ?? maxOrder,
+    is_default: cat.is_default ?? false,
+    icon: cat.icon || null,
+    color: cat.color || null,
+    created_at: cat.created_at || new Date().toISOString(),
+  };
+  await db.categories.put(newCat);
+  return newCat;
+}
+
+export async function updateCategory(id: string, updates: Partial<Category>): Promise<void> {
+  await db.categories.update(id, updates);
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  await db.categories.delete(id);
+}
+
+export async function reorderCategories(categories: Category[]): Promise<void> {
+  await db.transaction("rw", db.categories, async () => {
+    for (let i = 0; i < categories.length; i++) {
+      await db.categories.update(categories[i].id, { sort_order: i + 1 });
+    }
+  });
+}
+
+export async function fetchAccounts(): Promise<Account[]> {
+  await ensureInitialized();
+  return db.accounts.orderBy("sort_order").toArray();
+}
+
+export async function createAccount(acc: Partial<Account>): Promise<Account> {
+  await ensureInitialized();
+  const maxOrder = (await db.accounts.count()) + 1;
+  const newAcc: Account = {
+    id: acc.id || crypto.randomUUID(),
+    name: acc.name || "",
+    type: acc.type || "bank",
+    sort_order: acc.sort_order ?? maxOrder,
+    is_default: acc.is_default ?? false,
+    created_at: acc.created_at || new Date().toISOString(),
+  };
+  await db.accounts.put(newAcc);
+  return newAcc;
+}
+
+export async function updateAccount(id: string, updates: Partial<Account>): Promise<void> {
+  await db.accounts.update(id, updates);
+}
+
+export async function deleteAccount(id: string): Promise<void> {
+  await db.accounts.delete(id);
 }
 
 export async function fetchTransactions(opts?: {
@@ -88,177 +99,210 @@ export async function fetchTransactions(opts?: {
   orderBy?: string;
   ascending?: boolean;
 }): Promise<TransactionWithNames[]> {
-  let q = supabase
-    .from("transactions")
-    .select(`
-      *,
-      category:categories(name, tag),
-      account:accounts(name)
-    `);
+  await ensureInitialized();
+  const [allTx, categories, accounts] = await Promise.all([
+    db.transactions.toArray(),
+    db.categories.toArray(),
+    db.accounts.toArray(),
+  ]);
 
-  if (opts?.startDate) q = q.gte("date", opts.startDate);
-  if (opts?.endDate) q = q.lte("date", opts.endDate);
-  if (opts?.type) q = q.eq("type", opts.type);
-  if (opts?.categoryId) q = q.eq("category_id", opts.categoryId);
-  if (opts?.accountId) q = q.eq("account_id", opts.accountId);
-  if (opts?.tag) q = q.eq("tag", opts.tag);
-  if (opts?.merchant) q = q.ilike("merchant", `%${opts.merchant}%`);
-  if (opts?.minAmount !== undefined) q = q.gte("amount", opts.minAmount);
-  if (opts?.maxAmount !== undefined) q = q.lte("amount", opts.maxAmount);
-  if (opts?.search) {
-    q = q.or(`merchant.ilike.%${opts.search}%,notes.ilike.%${opts.search}%`);
+  const catMap = new Map(categories.map((c) => [c.id, c]));
+  const accMap = new Map(accounts.map((a) => [a.id, a]));
+
+  let filtered = allTx.filter((t) => {
+    if (opts?.startDate && t.date < opts.startDate) return false;
+    if (opts?.endDate && t.date > opts.endDate) return false;
+    if (opts?.type && t.type !== opts.type) return false;
+    if (opts?.categoryId && t.category_id !== opts.categoryId) return false;
+    if (opts?.accountId && t.account_id !== opts.accountId) return false;
+    if (opts?.tag && t.tag !== opts.tag) return false;
+    if (opts?.minAmount !== undefined && Number(t.amount) < opts.minAmount) return false;
+    if (opts?.maxAmount !== undefined && Number(t.amount) > opts.maxAmount) return false;
+    if (opts?.merchant && !(t.merchant || "").toLowerCase().includes(opts.merchant.toLowerCase())) return false;
+    if (opts?.search) {
+      const q = opts.search.toLowerCase();
+      const inMerchant = (t.merchant || "").toLowerCase().includes(q);
+      const inNotes = (t.notes || "").toLowerCase().includes(q);
+      const inCat = (catMap.get(t.category_id || "")?.name || "").toLowerCase().includes(q);
+      if (!inMerchant && !inNotes && !inCat) return false;
+    }
+    return true;
+  });
+
+  const orderBy = opts?.orderBy || "date";
+  const ascending = opts?.ascending ?? false;
+
+  filtered.sort((a, b) => {
+    let comp = 0;
+    if (orderBy === "date") {
+      comp = a.date.localeCompare(b.date);
+      if (comp === 0) comp = (a.created_at || "").localeCompare(b.created_at || "");
+    } else if (orderBy === "amount") {
+      comp = Number(a.amount) - Number(b.amount);
+    } else if (orderBy === "merchant") {
+      comp = (a.merchant || "").localeCompare(b.merchant || "");
+    } else {
+      comp = a.date.localeCompare(b.date);
+    }
+    return ascending ? comp : -comp;
+  });
+
+  if (opts?.offset) {
+    filtered = filtered.slice(opts.offset);
+  }
+  if (opts?.limit) {
+    filtered = filtered.slice(0, opts.limit);
   }
 
-  q = q.order(opts?.orderBy || "date", { ascending: opts?.ascending ?? false });
-  if (opts?.orderBy === "date" && (opts?.ascending ?? false) === false) {
-    q = q.order("created_at", { ascending: false });
-  }
-
-  if (opts?.limit) q = q.limit(opts.limit);
-  if (opts?.offset) q = q.range(opts.offset, opts.offset + (opts.limit || 1000) - 1);
-
-  const { data, error } = await q;
-  if (error) throw error;
-
-  return (data || []).map((t) => {
-    const row = t as Record<string, unknown>;
-    const category = row.category as { name?: string; tag?: TagType } | null;
-    const account = row.account as { name?: string } | null;
+  return filtered.map((t) => {
+    const cat = t.category_id ? catMap.get(t.category_id) : undefined;
+    const acc = t.account_id ? accMap.get(t.account_id) : undefined;
     return {
       ...t,
-      category_name: category?.name ?? null,
-      category_tag: category?.tag ?? null,
-      account_name: account?.name ?? null,
+      category_name: cat?.name ?? null,
+      category_tag: cat?.tag ?? null,
+      account_name: acc?.name ?? null,
     };
   });
 }
 
 export async function createTransaction(tx: Partial<Transaction>): Promise<Transaction> {
-  const { data, error } = await supabase
-    .from("transactions")
-    .insert({
-      type: tx.type,
-      amount: tx.amount,
-      category_id: tx.category_id,
-      date: tx.date,
-      account_id: tx.account_id,
-      merchant: tx.merchant || null,
-      notes: tx.notes || null,
-      tags: tx.tags || [],
-      tag: tx.tag || "Want",
-      attachment_url: tx.attachment_url || null,
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  await ensureInitialized();
+  const now = new Date().toISOString();
+  const newTx: Transaction = {
+    id: tx.id || crypto.randomUUID(),
+    type: tx.type || "outflow",
+    amount: Number(tx.amount) || 0,
+    category_id: tx.category_id || null,
+    date: tx.date || now.slice(0, 10),
+    account_id: tx.account_id || null,
+    merchant: tx.merchant || null,
+    notes: tx.notes || null,
+    tags: tx.tags || [],
+    tag: tx.tag || "Want",
+    attachment_url: tx.attachment_url || null,
+    created_at: tx.created_at || now,
+    updated_at: now,
+  };
+  await db.transactions.put(newTx);
+  return newTx;
 }
 
 export async function updateTransaction(id: string, updates: Partial<Transaction>): Promise<void> {
-  const { error } = await supabase.from("transactions").update({
+  await db.transactions.update(id, {
     ...updates,
     updated_at: new Date().toISOString(),
-  }).eq("id", id);
-  if (error) throw error;
+  });
 }
 
 export async function deleteTransaction(id: string): Promise<void> {
-  const { error } = await supabase.from("transactions").delete().eq("id", id);
-  if (error) throw error;
+  await db.transactions.delete(id);
 }
 
 export async function bulkDeleteTransactions(ids: string[]): Promise<void> {
-  const { error } = await supabase.from("transactions").delete().in("id", ids);
-  if (error) throw error;
+  await db.transactions.bulkDelete(ids);
 }
 
 export async function fetchBudgets(): Promise<Budget[]> {
-  const { data, error } = await supabase.from("budgets").select("*");
-  if (error) throw error;
-  return data || [];
+  await ensureInitialized();
+  return db.budgets.toArray();
 }
 
 export async function createBudget(b: Partial<Budget>): Promise<Budget> {
-  const { data, error } = await supabase
-    .from("budgets")
-    .insert(b)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  await ensureInitialized();
+  const newBudget: Budget = {
+    id: b.id || crypto.randomUUID(),
+    type: b.type || "overall",
+    category_id: b.category_id || null,
+    amount: Number(b.amount) || 0,
+    period: b.period || "monthly",
+    created_at: b.created_at || new Date().toISOString(),
+  };
+  await db.budgets.put(newBudget);
+  return newBudget;
 }
 
 export async function updateBudget(id: string, updates: Partial<Budget>): Promise<void> {
-  const { error } = await supabase.from("budgets").update(updates).eq("id", id);
-  if (error) throw error;
+  await db.budgets.update(id, updates);
 }
 
 export async function deleteBudget(id: string): Promise<void> {
-  const { error } = await supabase.from("budgets").delete().eq("id", id);
-  if (error) throw error;
+  await db.budgets.delete(id);
 }
 
 export async function fetchRecurringTransactions(): Promise<RecurringTransaction[]> {
-  const { data, error } = await supabase
-    .from("recurring_transactions")
-    .select("*")
-    .order("next_date", { ascending: true });
-  if (error) throw error;
-  return data || [];
+  await ensureInitialized();
+  return db.recurring_transactions.orderBy("next_date").toArray();
 }
 
 export async function createRecurringTransaction(r: Partial<RecurringTransaction>): Promise<RecurringTransaction> {
-  const { data, error } = await supabase
-    .from("recurring_transactions")
-    .insert(r)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  await ensureInitialized();
+  const newRec: RecurringTransaction = {
+    id: r.id || crypto.randomUUID(),
+    type: r.type || "outflow",
+    amount: Number(r.amount) || 0,
+    category_id: r.category_id || null,
+    account_id: r.account_id || null,
+    merchant: r.merchant || null,
+    notes: r.notes || null,
+    tag: r.tag || "Need",
+    frequency: r.frequency || "monthly",
+    custom_days: r.custom_days || null,
+    start_date: r.start_date || new Date().toISOString().slice(0, 10),
+    end_date: r.end_date || null,
+    next_date: r.next_date || new Date().toISOString().slice(0, 10),
+    notifications_enabled: r.notifications_enabled ?? false,
+    notify_days_before: r.notify_days_before ?? 1,
+    notify_time: r.notify_time || "09:00",
+    repeat_until_acknowledged: r.repeat_until_acknowledged ?? false,
+    last_generated: r.last_generated || null,
+    is_active: r.is_active ?? true,
+    created_at: r.created_at || new Date().toISOString(),
+  };
+  await db.recurring_transactions.put(newRec);
+  return newRec;
 }
 
-export async function updateRecurringTransaction(id: string, updates: Partial<RecurringTransaction>): Promise<void> {
-  const { error } = await supabase.from("recurring_transactions").update(updates).eq("id", id);
-  if (error) throw error;
+export async function updateRecurringTransaction(
+  id: string,
+  updates: Partial<RecurringTransaction>
+): Promise<void> {
+  await db.recurring_transactions.update(id, updates);
 }
 
 export async function deleteRecurringTransaction(id: string): Promise<void> {
-  const { error } = await supabase.from("recurring_transactions").delete().eq("id", id);
-  if (error) throw error;
+  await db.recurring_transactions.delete(id);
 }
 
 export async function fetchPayeeRules(): Promise<PayeeRule[]> {
-  const { data, error } = await supabase
-    .from("payee_rules")
-    .select("*")
-    .order("payee_name", { ascending: true });
-  if (error) throw error;
-  return data || [];
+  await ensureInitialized();
+  return db.payee_rules.orderBy("payee_name").toArray();
 }
 
 export async function createPayeeRule(rule: Partial<PayeeRule>): Promise<PayeeRule> {
-  const { data, error } = await supabase
-    .from("payee_rules")
-    .insert(rule)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  await ensureInitialized();
+  const newRule: PayeeRule = {
+    id: rule.id || crypto.randomUUID(),
+    payee_name: rule.payee_name || "",
+    category_id: rule.category_id || null,
+    type: rule.type || "outflow",
+    is_active: rule.is_active ?? true,
+    created_at: rule.created_at || new Date().toISOString(),
+  };
+  await db.payee_rules.put(newRule);
+  return newRule;
 }
 
 export async function deletePayeeRule(id: string): Promise<void> {
-  const { error } = await supabase.from("payee_rules").delete().eq("id", id);
-  if (error) throw error;
+  await db.payee_rules.delete(id);
 }
 
 export async function findPayeeRule(merchant: string): Promise<PayeeRule | null> {
   if (!merchant) return null;
-  const { data, error } = await supabase
-    .from("payee_rules")
-    .select("*")
-    .ilike("payee_name", merchant.trim())
-    .eq("is_active", true)
-    .maybeSingle();
-  if (error) return null;
-  return data;
+  await ensureInitialized();
+  const normalized = merchant.trim().toLowerCase();
+  const rule = await db.payee_rules
+    .filter((r) => r.is_active && r.payee_name.trim().toLowerCase() === normalized)
+    .first();
+  return rule || null;
 }
