@@ -15,9 +15,22 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# Environment
 .env
+.env.*
+!.env.example
+
+# Android & Keystore files
+*.apk
+*.aab
+*.jks
+*.keystore
+local.properties
+

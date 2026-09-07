@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PennyWise</string>
+    <string name="title_activity_main">PennyWise</string>
+    <string name="package_name">com.pennywise.app</string>
+    <string name="custom_url_scheme">com.pennywise.app</string>
+</resources>
