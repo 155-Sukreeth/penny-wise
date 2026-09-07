@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus, X, Trash2, AlertTriangle, Check, PiggyBank } from "lucide-react";
 import type { AppSettings, Category, Budget } from "@/types";
 import { fetchBudgets, createBudget, updateBudget, deleteBudget, fetchCategories, fetchTransactions } from "@/lib/data";
-import { formatCurrency, getMonthBounds } from "@/lib/format";
+import { formatCurrency, getMonthBounds, formatInputAmount, parseInputAmount } from "@/lib/format";
 
 interface BudgetWithSpent extends Budget {
   spent: number;
@@ -51,7 +51,7 @@ export function Budgets({ settings }: { settings: AppSettings }) {
   useEffect(() => { load(); }, [load]);
 
   const handleAdd = async () => {
-    const amt = parseFloat(addAmount);
+    const amt = parseInputAmount(addAmount);
     if (!amt || amt <= 0) return;
     if (addType === "category" && !addCategoryId) return;
     await createBudget({
@@ -67,7 +67,7 @@ export function Budgets({ settings }: { settings: AppSettings }) {
   };
 
   const handleUpdate = async (id: string) => {
-    const amt = parseFloat(editAmount);
+    const amt = parseInputAmount(editAmount);
     if (!amt || amt <= 0) return;
     await updateBudget(id, { amount: amt });
     setEditingId(null);
@@ -178,9 +178,10 @@ export function Budgets({ settings }: { settings: AppSettings }) {
                   {editingId === b.id ? (
                     <>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         value={editAmount}
-                        onChange={e => setEditAmount(e.target.value)}
+                        onChange={e => setEditAmount(formatInputAmount(e.target.value, settings.currency))}
                         placeholder="New amount"
                         className="flex-1 px-3 py-1.5 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100"
                         autoFocus
@@ -195,7 +196,7 @@ export function Budgets({ settings }: { settings: AppSettings }) {
                   ) : (
                     <>
                       <button
-                        onClick={() => { setEditingId(b.id); setEditAmount(String(b.amount)); }}
+                        onClick={() => { setEditingId(b.id); setEditAmount(b.amount ? formatInputAmount(String(b.amount), settings.currency) : ""); }}
                         className="text-xs text-gray-500 font-medium px-2 py-1"
                       >
                         Edit
@@ -215,12 +216,12 @@ export function Budgets({ settings }: { settings: AppSettings }) {
         </div>
       )}
 
-      {/* Add modal */}
+      {/* Add budget modal */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setShowAdd(false)}>
-          <div className="bg-white rounded-t-2xl w-full max-w-md p-5 pb-8" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-t-2xl w-full max-w-md p-5 pb-8 animate-in slide-in-from-bottom" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">New Budget</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Create Budget</h2>
               <button onClick={() => setShowAdd(false)} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
                 <X size={16} className="text-gray-600" />
               </button>
@@ -228,10 +229,10 @@ export function Budgets({ settings }: { settings: AppSettings }) {
 
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Budget Type</label>
+                <label className="text-xs text-gray-500 font-medium block mb-2">Budget Scope</label>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setAddType("overall")}
+                    onClick={() => { setAddType("overall"); setAddCategoryId(null); }}
                     className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${addType === "overall" ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}
                   >
                     Overall
@@ -264,9 +265,10 @@ export function Budgets({ settings }: { settings: AppSettings }) {
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100">
                   <span className="text-lg font-bold text-gray-400">{settings.currencySymbol}</span>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={addAmount}
-                    onChange={e => setAddAmount(e.target.value)}
+                    onChange={e => setAddAmount(formatInputAmount(e.target.value, settings.currency))}
                     placeholder="0"
                     autoFocus
                     className="text-lg font-bold text-gray-900 bg-transparent outline-none flex-1"
@@ -276,8 +278,8 @@ export function Budgets({ settings }: { settings: AppSettings }) {
 
               <button
                 onClick={handleAdd}
-                disabled={!parseFloat(addAmount) || (addType === "category" && !addCategoryId)}
-                className={`w-full py-3.5 rounded-xl font-semibold text-sm ${parseFloat(addAmount) && (addType !== "category" || addCategoryId) ? "bg-gray-900 text-white" : "bg-gray-200 text-gray-400"}`}
+                disabled={parseInputAmount(addAmount) <= 0 || (addType === "category" && !addCategoryId)}
+                className={`w-full py-3.5 rounded-xl font-semibold text-sm ${parseInputAmount(addAmount) > 0 && (addType !== "category" || addCategoryId) ? "bg-gray-900 text-white" : "bg-gray-200 text-gray-400"}`}
               >
                 Create Budget
               </button>

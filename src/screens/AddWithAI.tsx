@@ -3,7 +3,7 @@ import { X, Sparkles, Check, AlertCircle, Loader, ArrowDownLeft, ArrowUpRight } 
 import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchCategories, fetchAccounts, createTransaction, createPayeeRule, findPayeeRule } from "@/lib/data";
-import { getTodayString, formatDate } from "@/lib/format";
+import { getTodayString, formatDate, formatInputAmount, parseInputAmount } from "@/lib/format";
 import { parseTransactionWithAI, type ParsedTransaction as AIParsedTransaction } from "@/lib/ai";
 
 interface AddWithAIProps {
@@ -220,9 +220,10 @@ export function AddWithAI({ settings, onDone, onCancel }: AddWithAIProps) {
               <div className="flex items-center gap-2">
                 <span className="text-xl font-bold text-gray-400">{settings.currencySymbol}</span>
                 <input
-                  type="number"
-                  value={parsed.amount || ""}
-                  onChange={e => setParsed({ ...parsed, amount: parseFloat(e.target.value) || 0 })}
+                  type="text"
+                  inputMode="decimal"
+                  value={parsed.amount ? formatInputAmount(String(parsed.amount), settings.currency) : ""}
+                  onChange={e => setParsed({ ...parsed, amount: parseInputAmount(e.target.value) })}
                   className="text-xl font-bold text-gray-900 bg-transparent outline-none flex-1"
                 />
               </div>
