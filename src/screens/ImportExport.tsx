@@ -3,7 +3,8 @@ import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, Ar
 import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction } from "@/lib/data";
-import { supabase, AI_PROXY_URL } from "@/lib/supabase";
+import { db } from "@/lib/db";
+import { importTransactionsWithAI } from "@/lib/ai";
 import { formatCurrency, getTodayString } from "@/lib/format";
 
 type ImportMode = "menu" | "normal" | "ai" | "preview" | "ai-preview";
@@ -78,23 +79,12 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
       const rows = text.split("\n").filter(r => r.trim()).slice(0, 100);
       try {
         const cats = await fetchCategories();
-        const resp = await fetch(AI_PROXY_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "import",
-            rows,
-            categories: cats.map(c => ({ name: c.name, type: c.type, tag: c.tag })),
-            today: getTodayString(),
-            aiSettings: settings.aiSettings,
-          }),
-        });
-        if (!resp.ok) {
-          const err = await resp.json();
-          throw new Error(err.error || `AI import failed (${resp.status})`);
-        }
-        const data = await resp.json();
-        const results = data.result as PreviewRow[];
+        const results = await importTransactionsWithAI(
+          rows,
+          cats.map(c => ({ name: c.name, type: c.type, tag: c.tag })),
+          getTodayString(),
+          settings.aiSettings
+        );
         if (!Array.isArray(results)) throw new Error("AI returned unexpected format");
 
         const existing = await fetchTransactions({ limit: 5000 });
@@ -215,12 +205,14 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   };
 
   const handleBackup = async () => {
-    const [txs, cats, accs, budgets, recurring] = await Promise.all([
-      fetchTransactions({ limit: 10000 }),
+    const [txs, cats, accs, budgets, recurring, rules, settingsVal] = await Promise.all([
+      fetchTransactions({ limit: 50000 }),
       fetchCategories(),
       fetchAccounts(),
-      (await supabase.from("budgets").select("*")).data || [],
-      (await supabase.from("recurring_transactions").select("*")).data || [],
+      db.budgets.toArray(),
+      db.recurring_transactions.toArray(),
+      db.payee_rules.toArray(),
+      db.app_settings.get("app_settings"),
     ]);
     const backup = {
       version: "1.0",
@@ -230,12 +222,14 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
       accounts: accs,
       budgets,
       recurringTransactions: recurring,
+      payeeRules: rules,
+      settings: settingsVal?.value,
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `finance-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `pennywise-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -250,6 +244,32 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         setError("Invalid backup file format");
         setLoading(false);
         return;
+      }
+
+      if (backup.categories && Array.isArray(backup.categories)) {
+        for (const cat of backup.categories) {
+          await db.categories.put(cat);
+        }
+      }
+      if (backup.accounts && Array.isArray(backup.accounts)) {
+        for (const acc of backup.accounts) {
+          await db.accounts.put(acc);
+        }
+      }
+      if (backup.budgets && Array.isArray(backup.budgets)) {
+        for (const b of backup.budgets) {
+          await db.budgets.put(b);
+        }
+      }
+      if (backup.recurringTransactions && Array.isArray(backup.recurringTransactions)) {
+        for (const r of backup.recurringTransactions) {
+          await db.recurring_transactions.put(r);
+        }
+      }
+      if (backup.payeeRules && Array.isArray(backup.payeeRules)) {
+        for (const rule of backup.payeeRules) {
+          await db.payee_rules.put(rule);
+        }
       }
 
       const cats = await fetchCategories();

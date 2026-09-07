@@ -1,20 +1,17 @@
 import type { AppSettings } from "@/types";
 import { DEFAULT_SETTINGS } from "@/types";
-import { supabase } from "./supabase";
+import { db, ensureInitialized } from "./db";
 
 let cachedSettings: AppSettings | null = null;
 
 export async function loadSettings(): Promise<AppSettings> {
   if (cachedSettings) return cachedSettings;
 
-  const { data } = await supabase
-    .from("app_settings")
-    .select("key, value")
-    .eq("key", "app_settings")
-    .maybeSingle();
+  await ensureInitialized();
+  const setting = await db.app_settings.get("app_settings");
 
-  if (data?.value) {
-    cachedSettings = { ...DEFAULT_SETTINGS, ...(data.value as Partial<AppSettings>) };
+  if (setting?.value) {
+    cachedSettings = { ...DEFAULT_SETTINGS, ...setting.value };
   } else {
     cachedSettings = { ...DEFAULT_SETTINGS };
   }
@@ -22,9 +19,12 @@ export async function loadSettings(): Promise<AppSettings> {
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  await supabase
-    .from("app_settings")
-    .upsert({ key: "app_settings", value: settings as unknown as Record<string, unknown> });
+  await ensureInitialized();
+  await db.app_settings.put({
+    key: "app_settings",
+    value: settings,
+    updated_at: new Date().toISOString(),
+  });
   cachedSettings = settings;
 }
 

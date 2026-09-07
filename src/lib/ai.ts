@@ -1,54 +1,37 @@
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import type { AISettings, TagType, TransactionType } from "@/types";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
-
-interface AISettings {
-  provider: "gemini" | "groq" | "openai" | "anthropic";
-  apiKey: string;
-  model?: string;
-}
-
-interface ParseRequest {
-  text: string;
-  categories: { name: string; type: string; tag: string }[];
-  accounts: { name: string; type: string }[];
-  today: string;
-}
-
-interface ImportRequest {
-  rows: string[];
-  categories: { name: string; type: string; tag: string }[];
-  accounts: { name: string; type: string }[];
-  today: string;
-}
-
-interface ParsedTransaction {
-  type: "inflow" | "outflow";
+export interface ParsedTransaction {
+  type: TransactionType;
   amount: number;
   category: string;
   date: string;
   merchant: string;
   notes: string;
-  account: string;
-  tag: string;
+  tag: TagType;
   confidence: number;
   missingFields: string[];
 }
 
-async function getAISettings(req: Request): Promise<AISettings | null> {
-  const body = await req.json();
-  const settings = body.aiSettings as AISettings;
-  if (!settings || !settings.provider || !settings.apiKey) return null;
-  return settings;
+export interface PreviewRow {
+  type: TransactionType;
+  amount: number;
+  category: string;
+  date: string;
+  merchant: string;
+  notes: string;
+  tag: TagType;
+  account: string;
+  isDuplicate?: boolean;
+  selected: boolean;
 }
 
-function buildParsePrompt(text: string, categories: { name: string; type: string; tag: string }[], today: string): string {
-  const inflowCats = categories.filter(c => c.type === "inflow").map(c => c.name).join(", ");
-  const outflowCats = categories.filter(c => c.type === "outflow").map(c => c.name).join(", ");
+function buildParsePrompt(
+  text: string,
+  categories: { name: string; type: string; tag: string }[],
+  today: string
+): string {
+  const inflowCats = categories.filter((c) => c.type === "inflow").map((c) => c.name).join(", ");
+  const outflowCats = categories.filter((c) => c.type === "outflow").map((c) => c.name).join(", ");
 
   return `You are a financial transaction parser. Parse the following user input into a structured transaction.
 
@@ -83,9 +66,13 @@ Respond ONLY with valid JSON in this exact format:
 }`;
 }
 
-function buildImportPrompt(rows: string[], categories: { name: string; type: string; tag: string }[], today: string): string {
-  const inflowCats = categories.filter(c => c.type === "inflow").map(c => c.name).join(", ");
-  const outflowCats = categories.filter(c => c.type === "outflow").map(c => c.name).join(", ");
+function buildImportPrompt(
+  rows: string[],
+  categories: { name: string; type: string; tag: string }[],
+  today: string
+): string {
+  const inflowCats = categories.filter((c) => c.type === "inflow").map((c) => c.name).join(", ");
+  const outflowCats = categories.filter((c) => c.type === "outflow").map((c) => c.name).join(", ");
 
   return `You are a financial statement import assistant. Convert the following bank statement rows into structured transactions.
 
@@ -94,7 +81,7 @@ Today's date is: ${today}
 Available inflow categories: ${inflowCats}
 Available outflow categories: ${outflowCats}
 
-Bank statement rows (CSV/structured data):
+Bank statement rows:
 ${rows.join("\n")}
 
 Rules:
@@ -123,6 +110,17 @@ Respond ONLY with valid JSON array in this exact format:
 ]`;
 }
 
+function extractJSON<T>(text: string): T {
+  let cleaned = text.trim();
+  cleaned = cleaned.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const firstBrace = cleaned.indexOf(cleaned.startsWith("[") ? "[" : "{");
+  const lastBrace = cleaned.lastIndexOf(cleaned.startsWith("[") ? "]" : "}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
+  return JSON.parse(cleaned);
+}
+
 async function callGemini(apiKey: string, prompt: string, model: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const resp = await fetch(url, {
@@ -135,7 +133,7 @@ async function callGemini(apiKey: string, prompt: string, model: string): Promis
   });
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`Gemini API error: ${resp.status} ${err}`);
+    throw new Error(`Gemini API error (${resp.status}): ${err}`);
   }
   const data = await resp.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -157,7 +155,7 @@ async function callGroq(apiKey: string, prompt: string, model: string): Promise<
   });
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`Groq API error: ${resp.status} ${err}`);
+    throw new Error(`Groq API error (${resp.status}): ${err}`);
   }
   const data = await resp.json();
   const text = data?.choices?.[0]?.message?.content;
@@ -179,7 +177,7 @@ async function callOpenAI(apiKey: string, prompt: string, model: string): Promis
   });
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`OpenAI API error: ${resp.status} ${err}`);
+    throw new Error(`OpenAI API error (${resp.status}): ${err}`);
   }
   const data = await resp.json();
   const text = data?.choices?.[0]?.message?.content;
@@ -195,6 +193,7 @@ async function callAnthropic(apiKey: string, prompt: string, model: string): Pro
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      "dangerously-allow-browser": "true",
     },
     body: JSON.stringify({
       model,
@@ -204,23 +203,12 @@ async function callAnthropic(apiKey: string, prompt: string, model: string): Pro
   });
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`Anthropic API error: ${resp.status} ${err}`);
+    throw new Error(`Anthropic API error (${resp.status}): ${err}`);
   }
   const data = await resp.json();
   const text = data?.content?.[0]?.text;
   if (!text) throw new Error("Anthropic returned no content");
   return text;
-}
-
-function extractJSON(text: string): unknown {
-  let cleaned = text.trim();
-  cleaned = cleaned.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  const firstBrace = cleaned.indexOf(cleaned.startsWith("[") ? "[" : "{");
-  const lastBrace = cleaned.lastIndexOf(cleaned.startsWith("[") ? "]" : "}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-  }
-  return JSON.parse(cleaned);
 }
 
 async function callAI(settings: AISettings, prompt: string): Promise<string> {
@@ -246,61 +234,24 @@ async function callAI(settings: AISettings, prompt: string): Promise<string> {
   }
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
-  }
+export async function parseTransactionWithAI(
+  input: string,
+  categories: { name: string; type: string; tag: string }[],
+  today: string,
+  aiSettings: AISettings
+): Promise<ParsedTransaction> {
+  const prompt = buildParsePrompt(input, categories, today);
+  const rawResponse = await callAI(aiSettings, prompt);
+  return extractJSON<ParsedTransaction>(rawResponse);
+}
 
-  try {
-    const body = await req.json();
-    const settings = body.aiSettings as AISettings;
-    if (!settings?.apiKey) {
-      return new Response(
-        JSON.stringify({ error: "AI API key not configured. Please set up AI in Settings." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const action = body.action as "parse" | "import";
-    let prompt: string;
-
-    if (action === "parse") {
-      const { text, categories, today } = body as ParseRequest & { action: string };
-      if (!text) {
-        return new Response(
-          JSON.stringify({ error: "No text provided for parsing." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      prompt = buildParsePrompt(text, categories || [], today || new Date().toISOString().slice(0, 10));
-    } else if (action === "import") {
-      const { rows, categories, today } = body as ImportRequest & { action: string };
-      if (!rows || !Array.isArray(rows) || rows.length === 0) {
-        return new Response(
-          JSON.stringify({ error: "No rows provided for import." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const limitedRows = rows.slice(0, 100);
-      prompt = buildImportPrompt(limitedRows, categories || [], today || new Date().toISOString().slice(0, 10));
-    } else {
-      return new Response(
-        JSON.stringify({ error: "Invalid action. Use 'parse' or 'import'." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const rawResponse = await callAI(settings, prompt);
-    const parsed = extractJSON(rawResponse);
-
-    return new Response(
-      JSON.stringify({ result: parsed }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message || "AI processing failed" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-});
+export async function importTransactionsWithAI(
+  rows: string[],
+  categories: { name: string; type: string; tag: string }[],
+  today: string,
+  aiSettings: AISettings
+): Promise<PreviewRow[]> {
+  const prompt = buildImportPrompt(rows.slice(0, 100), categories, today);
+  const rawResponse = await callAI(aiSettings, prompt);
+  return extractJSON<PreviewRow[]>(rawResponse);
+}
