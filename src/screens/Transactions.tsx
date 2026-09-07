@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Search, SlidersHorizontal, X, ArrowUpRight, ArrowDownRight, Trash2, CheckSquare, Square, ChevronDown, Plus } from "lucide-react";
+import { Search, SlidersHorizontal, X, ArrowUpRight, ArrowDownRight, Trash2, CheckSquare, Square, ChevronDown, ChevronLeft, ChevronRight, Calendar, Plus } from "lucide-react";
 import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, deleteTransaction, bulkDeleteTransactions, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, relativeDate, getTodayString } from "@/lib/format";
+import { formatCurrency, relativeDate, getTodayString, getMonthBounds, formatDate } from "@/lib/format";
 import type { ScreenName } from "@/App";
 
 interface TransactionsProps {
@@ -13,6 +13,7 @@ interface TransactionsProps {
 }
 
 type SortField = "date" | "amount" | "merchant";
+type ViewMode = "month" | "custom" | "all";
 
 export function Transactions({ settings, onEditTransaction, onNavigate }: TransactionsProps) {
   const [transactions, setTransactions] = useState<TransactionWithNames[]>([]);
@@ -20,6 +21,10 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("month");
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [customStart, setCustomStart] = useState<string>(getMonthBounds().start);
+  const [customEnd, setCustomEnd] = useState<string>(getMonthBounds().end);
   const [showFilters, setShowFilters] = useState(false);
   const [filterType, setFilterType] = useState<TransactionType | "">("");
   const [filterCategory, setFilterCategory] = useState("");
@@ -31,9 +36,31 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showSortMenu, setShowSortMenu] = useState(false);
 
+  const prevMonth = () => {
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+  };
+
+  const nextMonth = () => {
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
+    let startDate: string | undefined;
+    let endDate: string | undefined;
+
+    if (viewMode === "month") {
+      const bounds = getMonthBounds(currentDate);
+      startDate = bounds.start;
+      endDate = bounds.end;
+    } else if (viewMode === "custom") {
+      startDate = customStart;
+      endDate = customEnd;
+    }
+
     const data = await fetchTransactions({
+      startDate,
+      endDate,
       search: search || undefined,
       type: filterType || undefined,
       categoryId: filterCategory || undefined,
@@ -45,7 +72,7 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
     });
     setTransactions(data);
     setLoading(false);
-  }, [search, filterType, filterCategory, filterAccount, filterTag, sortBy, sortDesc]);
+  }, [viewMode, currentDate, customStart, customEnd, search, filterType, filterCategory, filterAccount, filterTag, sortBy, sortDesc]);
 
   useEffect(() => {
     fetchCategories().then(setCategories);
@@ -97,20 +124,84 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
 
   return (
     <div className="px-4 pt-6 pb-4">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Transactions</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Activity</h1>
           <p className="text-sm text-gray-500 mt-0.5">{transactions.length} entries</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setBulkMode(!bulkMode); setSelected(new Set()); }}
             className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${bulkMode ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}
+            title="Bulk select"
           >
             {bulkMode ? <CheckSquare size={18} /> : <Square size={18} />}
           </button>
         </div>
       </div>
+
+      {/* View Mode Switcher */}
+      <div className="flex items-center gap-1.5 mb-3 bg-gray-100 p-1 rounded-xl">
+        {(["month", "custom", "all"] as ViewMode[]).map((m) => (
+          <button
+            key={m}
+            onClick={() => setViewMode(m)}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg capitalize transition-all ${
+              viewMode === m ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {m === "month" ? "Month View" : m === "custom" ? "Custom Range" : "All Time"}
+          </button>
+        ))}
+      </div>
+
+      {/* Month Navigator Header */}
+      {viewMode === "month" && (
+        <div className="bg-white border border-gray-100 rounded-2xl p-2.5 mb-4 flex items-center justify-between shadow-sm">
+          <button
+            onClick={prevMonth}
+            className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-50 text-gray-600 hover:bg-gray-100 active:scale-95 transition-transform"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <div className="text-center">
+            <span className="text-sm font-bold text-gray-900 block">
+              {currentDate.toLocaleString("default", { month: "long", year: "numeric" })}
+            </span>
+          </div>
+          <button
+            onClick={nextMonth}
+            className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-50 text-gray-600 hover:bg-gray-100 active:scale-95 transition-transform"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* Custom Range Picker */}
+      {viewMode === "custom" && (
+        <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm mb-4 flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block mb-1">From</label>
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="w-full bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none border border-gray-100 font-medium"
+            />
+          </div>
+          <div className="text-gray-300 self-end pb-2 font-medium">→</div>
+          <div className="flex-1 min-w-0">
+            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block mb-1">To</label>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="w-full bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none border border-gray-100 font-medium"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -299,13 +390,17 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-medium text-gray-900 truncate">{t.merchant || t.category_name || "Transaction"}</span>
+                          <span className="text-sm font-medium text-gray-900 truncate">
+                            {t.notes?.trim() || t.category_name || "Transaction"}
+                          </span>
                           <span className={`text-[9px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${TAG_BG_COLORS[t.tag]}`}>
                             {t.tag}
                           </span>
                         </div>
                         <span className="text-xs text-gray-400 block truncate">
-                          {t.category_name}{t.account_name ? ` · ${t.account_name}` : ""}
+                          {t.notes?.trim()
+                            ? `${t.category_name || "Uncategorized"}${t.merchant ? ` · ${t.merchant}` : ""}${t.account_name ? ` · ${t.account_name}` : ""}`
+                            : `${t.merchant ? `${t.merchant} · ` : ""}${t.category_name || "Uncategorized"}${t.account_name ? ` · ${t.account_name}` : ""}`}
                         </span>
                       </div>
                       <span className={`text-sm font-semibold flex-shrink-0 ${t.type === "inflow" ? "text-emerald-600" : "text-gray-900"}`}>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, X, Trash2, Repeat, Bell, BellOff, Calendar, Check, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { Plus, X, Trash2, Repeat, Bell, BellOff, Calendar, Check, ArrowDownLeft, ArrowUpRight, Edit2 } from "lucide-react";
 import type { AppSettings, TransactionType, TagType, Category, RecurringTransaction } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import {
@@ -13,7 +13,8 @@ export function Recurring({ settings }: { settings: AppSettings }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // form state
   const [type, setType] = useState<TransactionType>("outflow");
@@ -45,42 +46,86 @@ export function Recurring({ settings }: { settings: AppSettings }) {
   useEffect(() => { load(); }, [load]);
 
   const resetForm = () => {
+    setEditingId(null);
     setType("outflow"); setAmount(""); setCategoryId(null); setAccountId(null);
     setMerchant(""); setNotes(""); setTag("Need"); setFrequency("monthly");
     setStartDate(getTodayString()); setNotificationsEnabled(false);
     setNotifyDaysBefore(1); setNotifyTime("09:00");
   };
 
-  const handleAdd = async () => {
+  const handleOpenAdd = () => {
+    resetForm();
+    setShowModal(true);
+  };
+
+  const handleOpenEdit = (r: RecurringTransaction) => {
+    setEditingId(r.id);
+    setType(r.type);
+    setAmount(String(r.amount));
+    setCategoryId(r.category_id);
+    setAccountId(r.account_id);
+    setMerchant(r.merchant || "");
+    setNotes(r.notes || "");
+    setTag(r.tag);
+    setFrequency(r.frequency);
+    setStartDate(r.start_date);
+    setNotificationsEnabled(r.notifications_enabled);
+    setNotifyDaysBefore(r.notify_days_before);
+    setNotifyTime(r.notify_time);
+    setShowModal(true);
+  };
+
+  const handleSave = async () => {
     const amt = parseFloat(amount);
     if (!amt || !categoryId) return;
 
-    const nextDate = calculateNextDate(startDate, frequency);
-    await createRecurringTransaction({
-      type, amount: amt, category_id: categoryId, account_id: accountId,
-      merchant: merchant || null, notes: notes || null, tag,
-      frequency, start_date: startDate, next_date: nextDate,
-      notifications_enabled: notificationsEnabled,
-      notify_days_before: notifyDaysBefore,
-      notify_time: notifyTime,
-      is_active: true,
-    });
-    setShowAdd(false);
+    if (editingId) {
+      await updateRecurringTransaction(editingId, {
+        type,
+        amount: amt,
+        category_id: categoryId,
+        account_id: accountId,
+        merchant: merchant || null,
+        notes: notes || null,
+        tag,
+        frequency,
+        start_date: startDate,
+        notifications_enabled: notificationsEnabled,
+        notify_days_before: notifyDaysBefore,
+        notify_time: notifyTime,
+      });
+    } else {
+      const nextDate = calculateNextDate(startDate, frequency);
+      await createRecurringTransaction({
+        type, amount: amt, category_id: categoryId, account_id: accountId,
+        merchant: merchant || null, notes: notes || null, tag,
+        frequency, start_date: startDate, next_date: nextDate,
+        notifications_enabled: notificationsEnabled,
+        notify_days_before: notifyDaysBefore,
+        notify_time: notifyTime,
+        is_active: true,
+      });
+    }
+
+    setShowModal(false);
     resetForm();
     load();
   };
 
-  const handleToggleNotifications = async (r: RecurringTransaction) => {
+  const handleToggleNotifications = async (r: RecurringTransaction, e: React.MouseEvent) => {
+    e.stopPropagation();
     await updateRecurringTransaction(r.id, { notifications_enabled: !r.notifications_enabled });
     load();
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     await deleteRecurringTransaction(id);
     load();
   };
 
-  const handleLogNow = async (r: RecurringTransaction) => {
+  const handleLogNow = async (r: RecurringTransaction, e: React.MouseEvent) => {
+    e.stopPropagation();
     await createTransaction({
       type: r.type,
       amount: r.amount,
@@ -102,15 +147,16 @@ export function Recurring({ settings }: { settings: AppSettings }) {
   const filteredCategories = categories.filter(c => c.type === type);
 
   return (
-    <div className="px-4 pt-6 pb-4">
+    <div className="px-4 pt-6 pb-24">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Recurring</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Automated transactions</p>
+          <p className="text-sm text-gray-500 mt-0.5">Automated transactions & bills</p>
         </div>
         <button
-          onClick={() => { resetForm(); setShowAdd(true); }}
+          onClick={handleOpenAdd}
           className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center active:scale-90 transition-transform"
+          aria-label="Add Recurring"
         >
           <Plus size={20} />
         </button>
@@ -126,9 +172,9 @@ export function Recurring({ settings }: { settings: AppSettings }) {
             <Repeat size={24} className="text-gray-400" />
           </div>
           <p className="text-sm text-gray-500 mb-1">No recurring transactions</p>
-          <p className="text-xs text-gray-400 mb-4">Set up salary, rent, subscriptions, etc.</p>
+          <p className="text-xs text-gray-400 mb-4">Set up salary, rent, subscriptions, bills, etc.</p>
           <button
-            onClick={() => setShowAdd(true)}
+            onClick={handleOpenAdd}
             className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-xl"
           >
             Add Recurring
@@ -140,7 +186,11 @@ export function Recurring({ settings }: { settings: AppSettings }) {
             const cat = categories.find(c => c.id === r.category_id);
             const isOverdue = r.next_date < getTodayString() && r.is_active;
             return (
-              <div key={r.id} className={`bg-white rounded-2xl p-4 border ${isOverdue ? "border-amber-200" : "border-gray-100"}`}>
+              <div
+                key={r.id}
+                onClick={() => handleOpenEdit(r)}
+                className={`bg-white rounded-2xl p-4 border transition-all cursor-pointer hover:border-gray-300 shadow-sm ${isOverdue ? "border-amber-200" : "border-gray-100"}`}
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${r.type === "inflow" ? "bg-emerald-50" : "bg-red-50"}`}>
@@ -148,10 +198,13 @@ export function Recurring({ settings }: { settings: AppSettings }) {
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-gray-900 truncate">{r.merchant || cat?.name || "Recurring"}</h3>
-                      <p className="text-xs text-gray-400">{cat?.name} · {r.frequency}</p>
+                      <p className="text-xs text-gray-400">{cat?.name || "Uncategorized"} · <span className="capitalize">{r.frequency}</span></p>
                     </div>
                   </div>
-                  <span className="text-base font-bold text-gray-900 flex-shrink-0">{formatCurrency(r.amount, settings)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-bold text-gray-900 flex-shrink-0">{formatCurrency(r.amount, settings)}</span>
+                    <Edit2 size={14} className="text-gray-300" />
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
@@ -164,20 +217,20 @@ export function Recurring({ settings }: { settings: AppSettings }) {
 
                 <div className="flex items-center gap-2 pt-2 border-t border-gray-50">
                   <button
-                    onClick={() => handleLogNow(r)}
+                    onClick={(e) => handleLogNow(r, e)}
                     className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg active:scale-95 transition-transform"
                   >
                     <Check size={13} /> Log Now
                   </button>
                   <button
-                    onClick={() => handleToggleNotifications(r)}
+                    onClick={(e) => handleToggleNotifications(r, e)}
                     className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg ${r.notifications_enabled ? "bg-blue-50 text-blue-600" : "bg-gray-50 text-gray-500"}`}
                   >
                     {r.notifications_enabled ? <Bell size={13} /> : <BellOff size={13} />}
                     {r.notifications_enabled ? "On" : "Off"}
                   </button>
                   <button
-                    onClick={() => handleDelete(r.id)}
+                    onClick={(e) => handleDelete(r.id, e)}
                     className="ml-auto w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-500 rounded-lg"
                   >
                     <Trash2 size={14} />
@@ -189,72 +242,78 @@ export function Recurring({ settings }: { settings: AppSettings }) {
         </div>
       )}
 
-      {showAdd && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setShowAdd(false)}>
-          <div className="bg-white rounded-t-2xl w-full max-w-md p-5 pb-8 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setShowModal(false)}>
+          <div className="bg-white rounded-t-3xl w-full max-w-md p-5 pb-8 max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">New Recurring</h2>
-              <button onClick={() => setShowAdd(false)} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
+              <h2 className="text-lg font-bold text-gray-900">{editingId ? "Edit Recurring" : "New Recurring"}</h2>
+              <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
                 <X size={16} className="text-gray-600" />
               </button>
             </div>
 
             <div className="space-y-4">
               <div className="flex gap-2">
-                <button onClick={() => { setType("outflow"); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${type === "outflow" ? "bg-red-500 text-white" : "bg-gray-50 text-gray-600"}`}>Outflow</button>
-                <button onClick={() => { setType("inflow"); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${type === "inflow" ? "bg-emerald-500 text-white" : "bg-gray-50 text-gray-600"}`}>Inflow</button>
+                <button onClick={() => { setType("outflow"); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === "outflow" ? "bg-red-500 text-white" : "bg-gray-50 text-gray-600"}`}>Expense</button>
+                <button onClick={() => { setType("inflow"); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === "inflow" ? "bg-emerald-500 text-white" : "bg-gray-50 text-gray-600"}`}>Income</button>
               </div>
 
               <div>
                 <label className="text-xs text-gray-500 font-medium block mb-2">Amount</label>
-                <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-2 px-3.5 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
                   <span className="text-lg font-bold text-gray-400">{settings.currencySymbol}</span>
-                  <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus className="text-lg font-bold text-gray-900 bg-transparent outline-none flex-1" />
+                  <input type="number" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus className="text-lg font-bold text-gray-900 bg-transparent outline-none flex-1" />
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 font-medium block mb-2">Payee / Description</label>
+                <input
+                  type="text"
+                  value={merchant}
+                  onChange={e => setMerchant(e.target.value)}
+                  placeholder="e.g. Netflix, Rent, Salary"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100"
+                />
               </div>
 
               <div>
                 <label className="text-xs text-gray-500 font-medium block mb-2">Category</label>
                 <div className="flex flex-wrap gap-2">
                   {filteredCategories.map(c => (
-                    <button key={c.id} onClick={() => { setCategoryId(c.id); setTag(c.tag); }} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${categoryId === c.id ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}>{c.name}</button>
+                    <button key={c.id} onClick={() => { setCategoryId(c.id); setTag(c.tag); }} className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${categoryId === c.id ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600 hover:bg-gray-100"}`}>{c.name}</button>
                   ))}
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Frequency</label>
-                <div className="flex gap-2">
-                  {(["weekly", "monthly", "yearly"] as const).map(f => (
-                    <button key={f} onClick={() => setFrequency(f)} className={`flex-1 py-2 rounded-lg text-sm font-medium capitalize ${frequency === f ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}>{f}</button>
-                  ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium block mb-2">Frequency</label>
+                  <select value={frequency} onChange={e => setFrequency(e.target.value as "weekly" | "monthly" | "yearly")} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 capitalize font-medium">
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium block mb-2">Start Date</label>
+                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium" />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Start Date</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2.5 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100" />
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Merchant (optional)</label>
-                <input type="text" value={merchant} onChange={e => setMerchant(e.target.value)} placeholder="e.g. Netflix" className="w-full px-3 py-2.5 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100" />
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Tag</label>
-                <div className="flex gap-2">
-                  {TAGS.map(t => (
-                    <button key={t} onClick={() => setTag(t)} className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${tag === t ? TAG_BG_COLORS[t] : "bg-white text-gray-500 border-gray-200"}`}>{t}</button>
-                  ))}
-                </div>
+                <label className="text-xs text-gray-500 font-medium block mb-2">Payment Account</label>
+                <select value={accountId || ""} onChange={e => setAccountId(e.target.value || null)} className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium">
+                  <option value="">Unspecified</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
               </div>
 
               <div className="border-t border-gray-100 pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Bell size={16} className="text-gray-400" />
-                    <span className="text-sm font-medium text-gray-700">Notifications</span>
+                    <span className="text-sm font-medium text-gray-700">Notifications Reminder</span>
                   </div>
                   <Toggle checked={notificationsEnabled} onChange={setNotificationsEnabled} />
                 </div>
@@ -271,11 +330,11 @@ export function Recurring({ settings }: { settings: AppSettings }) {
               </div>
 
               <button
-                onClick={handleAdd}
+                onClick={handleSave}
                 disabled={!parseFloat(amount) || !categoryId}
-                className={`w-full py-3.5 rounded-xl font-semibold text-sm ${parseFloat(amount) && categoryId ? "bg-gray-900 text-white" : "bg-gray-200 text-gray-400"}`}
+                className={`w-full py-3.5 rounded-2xl font-bold text-sm shadow-lg transition-all ${parseFloat(amount) && categoryId ? "bg-gray-900 text-white active:scale-95" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
               >
-                Create Recurring Transaction
+                {editingId ? "Update Recurring Item" : "Create Recurring Item"}
               </button>
             </div>
           </div>

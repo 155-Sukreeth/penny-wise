@@ -3,7 +3,7 @@ import { TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, Calenda
 import type { AppSettings } from "@/types";
 import { TAG_COLORS, TAGS, type TagType } from "@/types";
 import { fetchTransactions, fetchCategories, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, formatCurrencyWithSign, getPeriodBounds, periodLabel, relativeDate, getMonthBounds, getLastMonthBounds } from "@/lib/format";
+import { formatCurrency, formatCurrencyWithSign, getPeriodBounds, periodLabel, relativeDate, getMonthBounds, getLastMonthBounds, formatDate } from "@/lib/format";
 import { DonutChart } from "@/components/charts/DonutChart";
 import { BarChart } from "@/components/charts/BarChart";
 import { LineChart } from "@/components/charts/LineChart";
@@ -15,7 +15,7 @@ interface DashboardProps {
   onEditTransaction: (id: string) => void;
 }
 
-const PERIODS = ["today", "week", "month", "last_month", "year"] as const;
+const PERIODS = ["today", "week", "month", "last_month", "year", "custom"] as const;
 
 const CATEGORY_COLORS = [
   "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -25,6 +25,8 @@ const CATEGORY_COLORS = [
 
 export function Dashboard({ settings, onNavigate, onEditTransaction }: DashboardProps) {
   const [period, setPeriod] = useState<string>("month");
+  const [customStart, setCustomStart] = useState<string>(getMonthBounds().start);
+  const [customEnd, setCustomEnd] = useState<string>(getMonthBounds().end);
   const [transactions, setTransactions] = useState<TransactionWithNames[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAIButton, setShowAIButton] = useState(false);
@@ -37,13 +39,22 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
 
   const load = async () => {
     setLoading(true);
-    const { start, end } = getPeriodBounds(period);
+    let start: string;
+    let end: string;
+    if (period === "custom") {
+      start = customStart;
+      end = customEnd;
+    } else {
+      const bounds = getPeriodBounds(period);
+      start = bounds.start;
+      end = bounds.end;
+    }
     const data = await fetchTransactions({ startDate: start, endDate: end, limit: 2000 });
     setTransactions(data);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [period]);
+  useEffect(() => { load(); }, [period, customStart, customEnd]);
 
   const stats = useMemo(() => {
     const inflow = transactions.filter(t => t.type === "inflow");
@@ -52,7 +63,16 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
     const totalOutflow = outflow.reduce((s, t) => s + Number(t.amount), 0);
     const netCashFlow = totalInflow - totalOutflow;
 
-    const { start, end } = getPeriodBounds(period);
+    let start: string;
+    let end: string;
+    if (period === "custom") {
+      start = customStart;
+      end = customEnd;
+    } else {
+      const bounds = getPeriodBounds(period);
+      start = bounds.start;
+      end = bounds.end;
+    }
     const days = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1);
     const avgDailySpending = totalOutflow / days;
 
@@ -167,9 +187,14 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
   return (
     <div className="px-4 pt-6 pb-4">
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{periodLabel(period)}</p>
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="PennyWise Logo" className="w-10 h-10 rounded-full border border-gray-100 shadow-sm" />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">PennyWise</h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {period === "custom" ? `${formatDate(customStart, settings)} – ${formatDate(customEnd, settings)}` : periodLabel(period)}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {showAIButton && (
@@ -184,7 +209,7 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
         </div>
       </div>
 
-      <div className="flex gap-1.5 mb-5 overflow-x-auto no-scrollbar -mx-4 px-4">
+      <div className="flex gap-1.5 mb-3 overflow-x-auto no-scrollbar -mx-4 px-4">
         {PERIODS.map(p => (
           <button
             key={p}
@@ -195,10 +220,34 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
                 : "bg-white text-gray-600 border border-gray-200"
             }`}
           >
-            {periodLabel(p)}
+            {p === "custom" ? "Custom Range" : periodLabel(p)}
           </button>
         ))}
       </div>
+
+      {period === "custom" && (
+        <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm mb-5 flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block mb-1">From</label>
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="w-full bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none border border-gray-100 font-medium"
+            />
+          </div>
+          <div className="text-gray-300 self-end pb-2 font-medium">→</div>
+          <div className="flex-1 min-w-0">
+            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block mb-1">To</label>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="w-full bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none border border-gray-100 font-medium"
+            />
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -405,9 +454,13 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
                   </div>
                   <div className="min-w-0">
                     <span className="text-sm font-medium text-gray-900 block truncate">
-                      {stats.largest.merchant || stats.largest.category_name || "Transaction"}
+                      {stats.largest.notes?.trim() || stats.largest.category_name || "Transaction"}
                     </span>
-                    <span className="text-xs text-gray-400">{stats.largest.category_name} · {relativeDate(stats.largest.date)}</span>
+                    <span className="text-xs text-gray-400 block truncate">
+                      {stats.largest.notes?.trim()
+                        ? `${stats.largest.category_name || "Uncategorized"}${stats.largest.merchant ? ` · ${stats.largest.merchant}` : ""}`
+                        : `${stats.largest.merchant ? `${stats.largest.merchant} · ` : ""}${stats.largest.category_name || "Uncategorized"}`} · {relativeDate(stats.largest.date)}
+                    </span>
                   </div>
                 </div>
                 <span className="text-base font-bold text-red-500">{formatCurrency(stats.largest.amount, settings)}</span>
@@ -431,8 +484,14 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
                       {t.type === "inflow" ? <ArrowUpRight size={15} className="text-emerald-600" /> : <ArrowDownRight size={15} className="text-red-500" />}
                     </div>
                     <div className="min-w-0">
-                      <span className="text-sm text-gray-800 block truncate">{t.merchant || t.category_name || "Transaction"}</span>
-                      <span className="text-xs text-gray-400">{t.category_name} · {relativeDate(t.date)}</span>
+                      <span className="text-sm text-gray-800 block truncate">
+                        {t.notes?.trim() || t.category_name || "Transaction"}
+                      </span>
+                      <span className="text-xs text-gray-400 block truncate">
+                        {t.notes?.trim()
+                          ? `${t.category_name || "Uncategorized"}${t.merchant ? ` · ${t.merchant}` : ""}`
+                          : `${t.merchant ? `${t.merchant} · ` : ""}${t.category_name || "Uncategorized"}`} · {relativeDate(t.date)}
+                      </span>
                     </div>
                   </div>
                   <span className={`text-sm font-medium flex-shrink-0 ${t.type === "inflow" ? "text-emerald-600" : "text-gray-900"}`}>

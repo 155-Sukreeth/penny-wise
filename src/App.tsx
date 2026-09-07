@@ -84,9 +84,9 @@ export default function App() {
   const isFormScreen = screen === "add-transaction" || screen === "add-ai";
 
   return (
-    <div className="min-h-screen bg-gray-50 flex justify-center">
-      <div className="w-full max-w-md flex flex-col min-h-screen relative bg-gray-50">
-        <div className="flex-1 overflow-y-auto pb-24">
+    <div className="h-[100dvh] w-full bg-gray-100 flex justify-center overflow-hidden">
+      <div className="w-full max-w-md flex flex-col h-full bg-gray-50 relative shadow-xl overflow-hidden">
+        <main className="flex-1 overflow-y-auto">
           {screen === "dashboard" && <Dashboard settings={settings} onNavigate={navigate} onEditTransaction={handleEditTransaction} />}
           {screen === "transactions" && <Transactions settings={settings} onEditTransaction={handleEditTransaction} onNavigate={navigate} />}
           {screen === "budgets" && <Budgets settings={settings} />}
@@ -99,13 +99,13 @@ export default function App() {
               settings={settings}
               editId={editTransactionId}
               onDone={() => navigate("transactions")}
-              onCancel={() => navigate(screen === "add-transaction" ? "dashboard" : "dashboard")}
+              onCancel={() => navigate("dashboard")}
             />
           )}
           {screen === "add-ai" && (
             <AddWithAI settings={settings} onDone={() => navigate("transactions")} onCancel={() => navigate("dashboard")} />
           )}
-        </div>
+        </main>
 
         {!isFormScreen && (
           <BottomNav current={screen} onNavigate={navigate} />
@@ -120,12 +120,12 @@ function BottomNav({ current, onNavigate }: { current: ScreenName; onNavigate: (
     <>
       <button
         onClick={() => onNavigate("add-transaction")}
-        className="absolute bottom-20 right-4 w-14 h-14 bg-gray-900 text-white rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform z-20"
+        className="absolute bottom-16 right-4 w-13 h-13 p-3.5 bg-gray-900 text-white rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform z-30"
         aria-label="Add transaction"
       >
         <Plus size={24} />
       </button>
-      <nav className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-1.5 flex items-center justify-around z-10 max-w-md mx-auto">
+      <nav className="h-16 bg-white border-t border-gray-200 px-1 flex items-center justify-around z-20 w-full flex-shrink-0">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = current === item.name;
@@ -133,12 +133,12 @@ function BottomNav({ current, onNavigate }: { current: ScreenName; onNavigate: (
             <button
               key={item.name}
               onClick={() => onNavigate(item.name)}
-              className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-colors min-w-[44px] ${
-                active ? "text-gray-900" : "text-gray-400"
+              className={`flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 rounded-lg transition-colors min-w-[42px] ${
+                active ? "text-gray-900 font-semibold" : "text-gray-400 hover:text-gray-600"
               }`}
             >
-              <Icon size={20} strokeWidth={active ? 2.5 : 2} />
-              <span className="text-[9px] font-medium">{item.label}</span>
+              <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
+              <span className="text-[10px] leading-tight">{item.label}</span>
             </button>
           );
         })}
