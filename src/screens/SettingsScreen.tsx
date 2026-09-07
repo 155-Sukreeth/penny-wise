@@ -66,7 +66,11 @@ export function SettingsScreen({ settings, onSettingsChange }: SettingsScreenPro
         <NavRow icon={<Database size={18} className="text-gray-600" />} title="Data" subtitle="Export, import, backup" onClick={() => setPage("data")} />
       </div>
 
-      <p className="text-center text-xs text-gray-300 mt-8">Finance Tracker v1.0</p>
+      <div className="flex flex-col items-center justify-center mt-10 mb-4">
+        <img src="/logo.png" alt="PennyWise" className="w-12 h-12 mb-2" />
+        <p className="text-xs font-semibold text-gray-700">PennyWise</p>
+        <p className="text-[11px] text-gray-400">v1.0.0 · Offline-First & Private</p>
+      </div>
     </div>
   );
 }

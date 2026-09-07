@@ -187,11 +187,14 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
   return (
     <div className="px-4 pt-6 pb-4">
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {period === "custom" ? `${formatDate(customStart, settings)} – ${formatDate(customEnd, settings)}` : periodLabel(period)}
-          </p>
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="PennyWise Logo" className="w-10 h-10 rounded-full border border-gray-100 shadow-sm" />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">PennyWise</h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {period === "custom" ? `${formatDate(customStart, settings)} – ${formatDate(customEnd, settings)}` : periodLabel(period)}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {showAIButton && (
