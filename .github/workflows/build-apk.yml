@@ -47,6 +47,10 @@ jobs:
           echo "✅ Valid SemVer format: $TAG_NAME"
           echo "VERSION_TAG=$TAG_NAME" >> $GITHUB_ENV
 
+          CLEAN_VERSION="${TAG_NAME#v}"
+          echo "CLEAN_VERSION=$CLEAN_VERSION" >> $GITHUB_ENV
+          echo "VERSION_CODE=${{ github.run_number }}" >> $GITHUB_ENV
+
           # Check if this is a pre-release
           if [[ "$TAG_NAME" == *"-"* ]] || [ "${{ github.event.release.prerelease }}" = "true" ]; then
             echo "IS_PRERELEASE=true" >> $GITHUB_ENV
@@ -81,7 +85,7 @@ jobs:
       - name: Build Debug APK with Gradle
         run: |
           cd android
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug -PprojVersionCode=${{ github.run_number }} -PprojVersionName=${{ env.CLEAN_VERSION }} --stacktrace
           cd ..
 
       - name: Prepare APK Output
