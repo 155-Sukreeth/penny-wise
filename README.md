@@ -5,7 +5,8 @@
 PennyWise is a modern personal finance app designed to help you understand your spending habits without compromising your privacy. No ads, no cloud tracking, and no subscriptions — everything stays securely on your device.
 
 
-[![Downloads](https://img.shields.io/github/downloads-pre/155-Sukreeth/penny-wise/total?label=downloads)](https://github.com/155-Sukreeth/penny-wise/releases)
+![GitHub all releases](https://img.shields.io/github/downloads/155-Sukreeth/penny-wise/total)
+![GitHub downloads (pre-release)](https://img.shields.io/github/downloads-pre/155-Sukreeth/penny-wise/latest/total)
 
 ---
 
