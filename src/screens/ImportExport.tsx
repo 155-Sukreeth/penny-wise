@@ -19,6 +19,8 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   const [previewRows, setPreviewRows] = useState<StagedTransactionRow[]>([]);
   const [fileName, setFileName] = useState("");
   const [activeDraft, setActiveDraft] = useState<ImportDraft | null>(null);
+  const [pendingMode, setPendingMode] = useState<ImportMode | null>(null);
+  const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -522,6 +524,38 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
+  const handleStartImport = (targetMode: "normal" | "ai") => {
+    if (activeDraft) {
+      setPendingMode(targetMode);
+      setShowOverwriteWarning(true);
+    } else {
+      setMode(targetMode);
+    }
+  };
+
+  const handleConfirmDiscardAndProceed = async () => {
+    await clearImportDraft();
+    setActiveDraft(null);
+    setPreviewRows([]);
+    setFileName("");
+    setShowOverwriteWarning(false);
+    if (pendingMode) {
+      setMode(pendingMode);
+      setPendingMode(null);
+    }
+  };
+
+  const handleResumeFromWarning = () => {
+    setShowOverwriteWarning(false);
+    setPendingMode(null);
+    handleResumeDraft();
+  };
+
+  const handleCancelWarning = () => {
+    setShowOverwriteWarning(false);
+    setPendingMode(null);
+  };
+
   if (loading) {
     return (
       <div className="px-4 pt-6">
@@ -559,7 +593,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
             <div className="flex items-start justify-between gap-3 mb-2">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-gray-900 text-white flex items-center justify-center flex-shrink-0">
-                  <Sparkles size={16} />
+                  {activeDraft.source === ImportSource.AI ? <Sparkles size={16} /> : <Upload size={16} />}
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
@@ -603,12 +637,12 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           <ActionCard icon={<FileText size={20} className="text-gray-600" />} title="Full Backup" subtitle="Export all data as JSON" onClick={handleBackup} />
 
           <SectionTitle>Import</SectionTitle>
-          <ActionCard icon={<Upload size={20} className="text-gray-600" />} title="Import CSV" subtitle="From this app's export format" onClick={() => { setMode("normal"); }} />
+          <ActionCard icon={<Upload size={20} className="text-gray-600" />} title="Import CSV" subtitle="From this app's export format" onClick={() => handleStartImport("normal")} />
           <ActionCard
             icon={<Sparkles size={20} className="text-gray-700" />}
             title="Import with AI"
             subtitle="Bank statements, unstructured files"
-            onClick={() => { setMode("ai"); }}
+            onClick={() => handleStartImport("ai")}
             highlight={!!settings.aiSettings?.apiKey}
           />
 
@@ -622,6 +656,61 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
             onChange={e => { const f = e.target.files?.[0]; if (f) handleRestore(f); e.target.value = ""; }}
           />
         </div>
+
+        {/* Overwrite Protection Warning Modal */}
+        {showOverwriteWarning && activeDraft && (
+          <div
+            className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-in fade-in"
+            onClick={handleCancelWarning}
+          >
+            <div
+              className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center mb-4 text-amber-600">
+                <AlertCircle size={24} />
+              </div>
+
+              <h3 className="text-base font-bold text-gray-900 mb-1.5">
+                Replace Unfinished Import?
+              </h3>
+
+              <p className="text-xs text-gray-500 leading-relaxed mb-5">
+                You already have an import draft in progress for{" "}
+                <span className="font-semibold text-gray-800 truncate inline-block max-w-[170px] align-bottom">
+                  {activeDraft.fileName || "Uploaded Statement"}
+                </span>{" "}
+                ({activeDraft.rows.length} transactions). Starting a new import will discard your previous review.
+              </p>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleResumeFromWarning}
+                  className="w-full py-3 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-semibold shadow-xs active:scale-[0.98] transition flex items-center justify-center gap-1.5"
+                >
+                  Resume Existing Import
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmDiscardAndProceed}
+                  className="w-full py-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-semibold active:scale-[0.98] transition"
+                >
+                  Discard & Start New Import
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelWarning}
+                  className="w-full py-2.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition text-center"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
