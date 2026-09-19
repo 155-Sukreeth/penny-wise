@@ -152,6 +152,9 @@ export async function initNotifications(): Promise<void> {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       navigator.serviceWorker.addEventListener("message", (event) => {
         if (event.data?.type === "NOTIFICATION_CLICK") {
+          try {
+            window.focus();
+          } catch (_) {}
           dispatchNotificationAction({
             notificationId: event.data.id || 0,
             extra: event.data.extra,
@@ -283,10 +286,15 @@ export async function scheduleNotificationBatch(notifications: AppNotification[]
 
       // 2. If browser system notification permission is granted, display desktop/system notification
       if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-        // Try ServiceWorker first if available (works on PWAs and Chromium)
+        // Try ServiceWorker first (enables OS-level window focus on Chromium/Windows)
         if ("serviceWorker" in navigator) {
           try {
-            const reg = await navigator.serviceWorker.getRegistration();
+            const reg =
+              (await Promise.race([
+                navigator.serviceWorker.ready,
+                new Promise<null>((res) => setTimeout(() => res(null), 500)),
+              ])) || (await navigator.serviceWorker.getRegistration());
+
             if (reg) {
               await reg.showNotification(n.title, {
                 body: n.body,
@@ -313,8 +321,12 @@ export async function scheduleNotificationBatch(notifications: AppNotification[]
             badge: "/favicon.png",
           });
 
-          notif.onclick = () => {
+          notif.onclick = (event) => {
+            event.preventDefault();
             window.focus();
+            try {
+              if (window.parent) window.parent.focus();
+            } catch (_) {}
             dispatchNotificationAction({
               notificationId: n.id,
               extra: n.extra,

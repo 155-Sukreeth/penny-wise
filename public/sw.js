@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pennywise-v1';
+const CACHE_NAME = 'pennywise-v2';
 
 const STATIC_ASSETS = [
   '/',
@@ -87,24 +87,33 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
+  const extra = data.extra || {};
+  const targetScreen = extra.screen || 'recurring';
+  const targetId = extra.recurringId || '';
+  const urlToOpen = new URL(
+    `/?screen=${encodeURIComponent(targetScreen)}${targetId ? `&recurringId=${encodeURIComponent(targetId)}` : ''}`,
+    self.location.origin
+  ).href;
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if ('focus' in client) {
-          client.focus();
-          client.postMessage({
-            type: 'NOTIFICATION_CLICK',
-            id: data.id,
-            extra: data.extra || data,
-          });
-          return;
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if ('focus' in client) {
+            client.postMessage({
+              type: 'NOTIFICATION_CLICK',
+              id: data.id,
+              extra: extra,
+            });
+            return client.focus();
+          }
         }
-      }
-      if (self.clients.openWindow) {
-        return self.clients.openWindow('/');
-      }
-    })
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(urlToOpen);
+        }
+      })
   );
 });
+
 

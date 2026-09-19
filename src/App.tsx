@@ -62,6 +62,18 @@ export default function App() {
       }
     });
 
+    // Handle deep-linking query parameters if opened directly from a notification
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetScreen = params.get("screen") as ScreenName | null;
+      const recurringId = params.get("recurringId");
+      if (targetScreen) {
+        setScreen(targetScreen);
+        if (recurringId) setTargetRecurringId(recurringId);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+
     initNotifications();
 
     const handleVisibility = () => {

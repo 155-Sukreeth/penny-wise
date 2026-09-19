@@ -9,6 +9,9 @@ if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')
+      .then((reg) => {
+        reg.update();
+      })
       .catch((err) => console.error('PWA Service Worker registration failed:', err));
   });
 }
