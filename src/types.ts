@@ -143,6 +143,8 @@ export interface AppSettings {
   overdueRemindersEnabled: boolean;
   overdueDaysLimit: number;
   overdueNotifyTime: string;
+  dailyNudgeEnabled: boolean;
+  dailyNudgeTime: string;
   appLockEnabled: boolean;
   appLockPin: string | null;
 }
@@ -161,6 +163,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   overdueRemindersEnabled: true,
   overdueDaysLimit: 2,
   overdueNotifyTime: "10:00",
+  dailyNudgeEnabled: false,
+  dailyNudgeTime: "21:00",
   appLockEnabled: false,
   appLockPin: null,
 };

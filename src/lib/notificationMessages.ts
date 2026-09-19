@@ -38,6 +38,14 @@ export const NotificationTemplates = {
   },
 
   /**
+   * Daily inactive logging nudge
+   */
+  dailyInactiveNudge: () => ({
+    title: "Track Today's Expenses",
+    body: "You haven't logged any transactions today. Take a moment to keep your records up to date!",
+  }),
+
+  /**
    * System test notification
    */
   testNotification: () => ({

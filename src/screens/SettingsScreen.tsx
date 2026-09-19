@@ -15,6 +15,7 @@ import {
   type NotificationPermissionState
 } from "@/lib/notifications";
 import { syncAllRecurringReminders } from "@/lib/recurringReminders";
+import { syncDailyNudge } from "@/lib/dailyNudge";
 import { NotificationTemplates } from "@/lib/notificationMessages";
 import {
   fetchCategories, createCategory, updateCategory, deleteCategory, reorderCategories,
@@ -608,6 +609,7 @@ function NotificationsSettings({ settings, onUpdate }: { settings: AppSettings; 
       if (res === "granted") {
         onUpdate({ notificationsEnabled: true });
         await syncAllRecurringReminders();
+        await syncDailyNudge();
       } else {
         onUpdate({ notificationsEnabled: false });
       }
@@ -740,6 +742,52 @@ function NotificationsSettings({ settings, onUpdate }: { settings: AppSettings; 
                 className="px-2.5 py-1 bg-gray-50 rounded-lg text-xs outline-none border border-gray-200 font-semibold"
               />
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Daily Inactivity Reminder</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Evening nudge if no expenses were logged today</p>
+          </div>
+          <Toggle
+            checked={settings.dailyNudgeEnabled ?? false}
+            onChange={async (v) => {
+              if (v && !settings.notificationsEnabled) {
+                const res = await requestNotificationPermissions();
+                setPermStatus(res);
+                if (res === "granted") {
+                  onUpdate({ notificationsEnabled: true, dailyNudgeEnabled: true });
+                } else {
+                  return;
+                }
+              } else {
+                onUpdate({ dailyNudgeEnabled: v });
+              }
+              await syncDailyNudge();
+            }}
+          />
+        </div>
+
+        {(settings.dailyNudgeEnabled ?? false) && (
+          <div className="pt-3 border-t border-gray-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-600 font-medium">Reminder Time</span>
+              <input
+                type="time"
+                value={settings.dailyNudgeTime || "21:00"}
+                onChange={async (e) => {
+                  onUpdate({ dailyNudgeTime: e.target.value });
+                  await syncDailyNudge();
+                }}
+                className="px-2.5 py-1 bg-gray-50 rounded-lg text-xs outline-none border border-gray-200 font-semibold"
+              />
+            </div>
+            <p className="text-[10px] text-gray-400">
+              Disarms automatically whenever you record a transaction today.
+            </p>
           </div>
         )}
       </div>

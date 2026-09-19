@@ -10,6 +10,7 @@ export interface AppNotification {
   extra?: Record<string, any>;
   sound?: string;
   actionTypeId?: string;
+  every?: "day" | "week" | "month" | "year";
 }
 
 export interface NotificationActionPayload {
@@ -250,6 +251,7 @@ export async function scheduleNotificationBatch(notifications: AppNotification[]
         schedule: isScheduled
           ? {
               at: n.scheduleAt,
+              every: n.every,
               allowWhileIdle: true,
             }
           : undefined,
