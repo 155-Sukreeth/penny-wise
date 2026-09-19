@@ -1,11 +1,12 @@
 import { useState, useRef } from "react";
 import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import type { AppSettings, TransactionType, TagType, Category } from "@/types";
-import { TAGS, TAG_BG_COLORS } from "@/types";
-import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction } from "@/lib/data";
+import type { AppSettings, Transaction, TransactionType, TagType } from "@/types";
+import { TAG_BG_COLORS } from "@/types";
+import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction, createCategory, createAccount } from "@/lib/data";
 import { db } from "@/lib/db";
 import { importTransactionsWithAI } from "@/lib/ai";
 import { formatCurrency, getTodayString } from "@/lib/format";
+import { saveSettings } from "@/lib/settings";
 import { exportFile } from "@/lib/exportUtils";
 
 type ImportMode = "menu" | "normal" | "ai" | "preview" | "ai-preview";
@@ -28,28 +29,21 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
-  const [aiText, setAiText] = useState("");
   const [fileName, setFileName] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const initData = async () => {
-    const [cats, accs] = await Promise.all([fetchCategories(), fetchAccounts()]);
-    setCategories(cats);
-    setAccounts(accs.map(a => ({ id: a.id, name: a.name })));
-  };
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const parseCSV = (text: string): string[][] => {
+    const cleanText = text.replace(/^\uFEFF/, "");
     const rows: string[][] = [];
     let current: string[] = [];
     let field = "";
     let inQuotes = false;
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
+    for (let i = 0; i < cleanText.length; i++) {
+      const c = cleanText[i];
       if (inQuotes) {
         if (c === '"') {
-          if (text[i + 1] === '"') { field += '"'; i++; }
+          if (cleanText[i + 1] === '"') { field += '"'; i++; }
           else inQuotes = false;
         } else field += c;
       } else {
@@ -66,7 +60,6 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   const handleFileUpload = async (file: File, useAI: boolean) => {
     setLoading(true);
     setError(null);
-    await initData();
 
     const text = await file.text();
     setFileName(file.name);
@@ -113,7 +106,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         setLoading(false);
         return;
       }
-      const headers = rows[0].map(h => h.trim().toLowerCase());
+      const headers = rows[0].map(h => h.replace(/^\uFEFF/, "").trim().toLowerCase());
       const required = ["date", "type", "amount", "category"];
       const missing = required.filter(r => !headers.includes(r));
       if (missing.length > 0) {
@@ -167,9 +160,35 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
     const cats = await fetchCategories();
     const accs = await fetchAccounts();
 
+    let importedCount = 0;
     for (const row of selected) {
-      const cat = cats.find(c => c.name.toLowerCase() === row.category.toLowerCase());
-      const acc = accs.find(a => a.name.toLowerCase() === row.account.toLowerCase());
+      let cat = cats.find(c => c.name.toLowerCase() === row.category.toLowerCase());
+      if (!cat && row.category.trim()) {
+        try {
+          cat = await createCategory({
+            name: row.category.trim(),
+            type: row.type,
+            tag: row.tag || "Want",
+          });
+          cats.push(cat);
+        } catch {
+          // ignore error if auto-creation fails
+        }
+      }
+
+      let acc = accs.find(a => a.name.toLowerCase() === row.account.toLowerCase());
+      if (!acc && row.account.trim()) {
+        try {
+          acc = await createAccount({
+            name: row.account.trim(),
+            type: "bank",
+          });
+          accs.push(acc);
+        } catch {
+          // ignore error if auto-creation fails
+        }
+      }
+
       await createTransaction({
         type: row.type,
         amount: row.amount,
@@ -181,11 +200,14 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         tag: row.tag,
         tags: [],
       });
+      importedCount++;
     }
     setLoading(false);
     setMode("menu");
     setPreviewRows([]);
     setError(null);
+    setSuccessMsg(`Successfully imported ${importedCount} transaction${importedCount !== 1 ? "s" : ""}!`);
+    setTimeout(() => setSuccessMsg(null), 3500);
   };
 
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -305,27 +327,39 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           await db.payee_rules.put(rule);
         }
       }
+      if (backup.settings) {
+        await saveSettings(backup.settings);
+      }
 
       const cats = await fetchCategories();
       const accs = await fetchAccounts();
 
+      let restoredTxCount = 0;
       for (const tx of backup.transactions) {
         const cat = cats.find(c => c.name === tx.category_name) || cats.find(c => c.id === tx.category_id);
         const acc = accs.find(a => a.name === tx.account_name) || accs.find(a => a.id === tx.account_id);
-        await createTransaction({
-          type: tx.type,
-          amount: tx.amount,
-          category_id: cat?.id || tx.category_id,
-          date: tx.date,
-          account_id: acc?.id || tx.account_id,
-          merchant: tx.merchant,
-          notes: tx.notes,
-          tag: tx.tag,
+        const restoredTx: Transaction = {
+          id: tx.id || crypto.randomUUID(),
+          type: tx.type || "outflow",
+          amount: Number(tx.amount) || 0,
+          category_id: cat?.id || tx.category_id || null,
+          date: tx.date || new Date().toISOString().slice(0, 10),
+          account_id: acc?.id || tx.account_id || null,
+          merchant: tx.merchant || null,
+          notes: tx.notes || null,
+          tag: tx.tag || "Want",
           tags: tx.tags || [],
-        });
+          attachment_url: tx.attachment_url || null,
+          created_at: tx.created_at || new Date().toISOString(),
+          updated_at: tx.updated_at || new Date().toISOString(),
+        };
+        await db.transactions.put(restoredTx);
+        restoredTxCount++;
       }
       setLoading(false);
       setMode("menu");
+      setSuccessMsg(`Backup restored successfully (${restoredTxCount} transaction${restoredTxCount !== 1 ? "s" : ""} restored)!`);
+      setTimeout(() => setSuccessMsg(null), 3500);
     } catch (e) {
       setError("Failed to restore backup: " + (e instanceof Error ? e.message : "invalid file"));
       setLoading(false);
@@ -388,7 +422,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           <input
             ref={fileRef}
             type="file"
-            accept=".json"
+            accept=".json,application/json,text/plain"
             className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleRestore(f); e.target.value = ""; }}
           />
@@ -429,7 +463,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
 
         <div className="flex-1 flex flex-col items-center justify-center">
           <div
-            onClick={() => document.getElementById("file-input")?.click()}
+            onClick={() => importFileRef.current?.click()}
             className="w-full border-2 border-dashed border-gray-200 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer hover:border-gray-300 transition-colors"
           >
             <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
@@ -439,11 +473,15 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
             <p className="text-xs text-gray-400 mt-1">{isAI ? "CSV, TXT, or any text file" : "CSV from this app's export"}</p>
           </div>
           <input
-            id="file-input"
+            ref={importFileRef}
             type="file"
-            accept={isAI ? ".csv,.txt,.tsv" : ".csv"}
+            accept={isAI ? ".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values,application/vnd.ms-excel" : ".csv,text/csv,text/plain,application/vnd.ms-excel"}
             className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, isAI); }}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) handleFileUpload(f, isAI);
+              e.target.value = "";
+            }}
           />
         </div>
       </div>
