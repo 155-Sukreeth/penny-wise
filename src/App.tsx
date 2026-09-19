@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Home, ArrowLeftRight, PiggyBank, FileBarChart, Repeat, Download, Settings as SettingsIcon, Plus } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { loadSettings } from "@/lib/settings";
+import { initNotifications, onNotificationAction } from "@/lib/notifications";
 import { Dashboard } from "@/screens/Dashboard";
 import { Transactions } from "@/screens/Transactions";
 import { Budgets } from "@/screens/Budgets";
@@ -53,12 +54,23 @@ export default function App() {
         setLocked(true);
       }
     });
+
+    initNotifications();
   }, []);
 
   const navigate = useCallback((s: ScreenName) => {
     setScreen(s);
     if (s !== "add-transaction") setEditTransactionId(null);
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = onNotificationAction((payload) => {
+      if (payload.extra?.screen) {
+        navigate(payload.extra.screen as ScreenName);
+      }
+    });
+    return () => unsubscribe();
+  }, [navigate]);
 
   const handleEditTransaction = useCallback((id: string) => {
     setEditTransactionId(id);

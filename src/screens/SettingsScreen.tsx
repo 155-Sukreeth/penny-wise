@@ -8,6 +8,13 @@ import type { AppSettings, Category } from "@/types";
 import { AIProvider, TransactionType, TagType, AppTheme, TAGS, TAG_BG_COLORS } from "@/types";
 import { saveSettings, clearSettingsCache } from "@/lib/settings";
 import {
+  checkNotificationPermissions,
+  requestNotificationPermissions,
+  scheduleNotification,
+  cancelAllNotifications,
+  type NotificationPermissionState
+} from "@/lib/notifications";
+import {
   fetchCategories, createCategory, updateCategory, deleteCategory, reorderCategories,
   fetchAccounts, createAccount, updateAccount, deleteAccount, fetchPayeeRules, deletePayeeRule
 } from "@/lib/data";
@@ -585,17 +592,95 @@ function PayeeRulesSettings() {
 }
 
 function NotificationsSettings({ settings, onUpdate }: { settings: AppSettings; onUpdate: (u: Partial<AppSettings>) => void }) {
+  const [permStatus, setPermStatus] = useState<NotificationPermissionState>("prompt");
+  const [testSent, setTestSent] = useState(false);
+
+  useEffect(() => {
+    checkNotificationPermissions().then(setPermStatus);
+  }, []);
+
+  const handleToggle = async (enabled: boolean) => {
+    if (enabled) {
+      const res = await requestNotificationPermissions();
+      setPermStatus(res);
+      if (res === "granted") {
+        onUpdate({ notificationsEnabled: true });
+      } else {
+        onUpdate({ notificationsEnabled: false });
+      }
+    } else {
+      await cancelAllNotifications();
+      onUpdate({ notificationsEnabled: false });
+    }
+  };
+
+  const handleSendTest = async () => {
+    const perm = await requestNotificationPermissions();
+    setPermStatus(perm);
+    if (perm !== "granted") return;
+
+    setTestSent(true);
+    // Schedule test notification in 2 seconds
+    const triggerTime = new Date(Date.now() + 2000);
+    await scheduleNotification({
+      id: 999999,
+      title: "Test Notification",
+      body: "Notifications are working properly!",
+      scheduleAt: triggerTime,
+      channelId: "app_reminders",
+      extra: { screen: "settings" },
+    });
+
+    setTimeout(() => setTestSent(false), 4000);
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl p-4 border border-gray-100">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <div>
             <h3 className="text-sm font-semibold text-gray-900">Enable Notifications</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Get reminded about recurring transactions</p>
+            <p className="text-xs text-gray-400 mt-0.5">Get reminded about recurring transactions & alerts</p>
           </div>
-          <Toggle checked={settings.notificationsEnabled} onChange={v => onUpdate({ notificationsEnabled: v })} />
+          <Toggle checked={settings.notificationsEnabled} onChange={handleToggle} />
+        </div>
+
+        <div className="pt-2.5 border-t border-gray-50 flex items-center justify-between text-xs">
+          <span className="text-gray-400 font-medium">System Permission</span>
+          <span className={`font-semibold capitalize px-2 py-0.5 rounded-full text-[11px] ${
+            permStatus === "granted"
+              ? "bg-emerald-50 text-emerald-600"
+              : permStatus === "denied"
+              ? "bg-red-50 text-red-600"
+              : "bg-gray-100 text-gray-600"
+          }`}>
+            {permStatus}
+          </span>
         </div>
       </div>
+
+      <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Test Notification</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Verify that your device receives sound and banners</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleSendTest}
+          disabled={testSent}
+          className="w-full py-2.5 bg-gray-900 hover:bg-black text-white text-xs font-semibold rounded-xl active:scale-[0.98] transition disabled:opacity-50"
+        >
+          {testSent ? "Notification Scheduled in 2s..." : "Send Test Notification"}
+        </button>
+
+        {testSent && (
+          <p className="text-[11px] text-emerald-600 text-center animate-in fade-in">
+            Test notification scheduled! Check your notification bar in 2 seconds.
+          </p>
+        )}
+      </div>
+
       <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
         <p className="text-xs text-blue-700">
           Notification timing and repetition are configured per recurring transaction in the Recurring tab.
