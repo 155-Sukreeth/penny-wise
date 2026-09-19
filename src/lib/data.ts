@@ -1,6 +1,7 @@
 import { db, ensureInitialized } from "./db";
 import { getTodayString, calculateNextDate } from "./format";
 import { scheduleRecurringReminder, cancelRecurringReminder } from "./recurringReminders";
+import { syncDailyNudge } from "./dailyNudge";
 import {
   type Category,
   type Account,
@@ -190,6 +191,7 @@ export async function createTransaction(tx: Partial<Transaction>): Promise<Trans
     updated_at: now,
   };
   await db.transactions.put(newTx);
+  syncDailyNudge().catch(() => {});
   return newTx;
 }
 
@@ -198,14 +200,17 @@ export async function updateTransaction(id: string, updates: Partial<Transaction
     ...updates,
     updated_at: new Date().toISOString(),
   });
+  syncDailyNudge().catch(() => {});
 }
 
 export async function deleteTransaction(id: string): Promise<void> {
   await db.transactions.delete(id);
+  syncDailyNudge().catch(() => {});
 }
 
 export async function bulkDeleteTransactions(ids: string[]): Promise<void> {
   await db.transactions.bulkDelete(ids);
+  syncDailyNudge().catch(() => {});
 }
 
 export async function fetchBudgets(): Promise<Budget[]> {

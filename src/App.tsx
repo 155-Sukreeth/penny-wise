@@ -4,6 +4,7 @@ import type { AppSettings } from "@/types";
 import { loadSettings } from "@/lib/settings";
 import { initNotifications, onNotificationAction, onInAppNotification, type AppNotification } from "@/lib/notifications";
 import { syncAllRecurringReminders } from "@/lib/recurringReminders";
+import { syncDailyNudge } from "@/lib/dailyNudge";
 import { NotificationToast } from "@/components/NotificationToast";
 import { Dashboard } from "@/screens/Dashboard";
 import { Transactions } from "@/screens/Transactions";
@@ -62,6 +63,9 @@ export default function App() {
       }
       if (s.notificationsEnabled) {
         syncAllRecurringReminders();
+        if (s.dailyNudgeEnabled) {
+          syncDailyNudge();
+        }
       }
     });
 
@@ -82,6 +86,7 @@ export default function App() {
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         syncAllRecurringReminders();
+        syncDailyNudge();
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
