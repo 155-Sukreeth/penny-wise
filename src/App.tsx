@@ -14,6 +14,7 @@ import { ImportExport } from "@/screens/ImportExport";
 import { SettingsScreen } from "@/screens/SettingsScreen";
 import { AddTransaction } from "@/screens/AddTransaction";
 import { AddWithAI } from "@/screens/AddWithAI";
+import { AddRecurring } from "@/screens/AddRecurring";
 import { AppLock } from "@/screens/AppLock";
 
 export type ScreenName =
@@ -25,7 +26,8 @@ export type ScreenName =
   | "import-export"
   | "settings"
   | "add-transaction"
-  | "add-ai";
+  | "add-ai"
+  | "add-recurring";
 
 interface NavItem {
   name: ScreenName;
@@ -47,6 +49,7 @@ export default function App() {
   const [screen, setScreen] = useState<ScreenName>("dashboard");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [editTransactionId, setEditTransactionId] = useState<string | null>(null);
+  const [editRecurringId, setEditRecurringId] = useState<string | null>(null);
   const [targetRecurringId, setTargetRecurringId] = useState<string | null>(null);
   const [activeToast, setActiveToast] = useState<AppNotification | null>(null);
   const [locked, setLocked] = useState(false);
@@ -88,6 +91,7 @@ export default function App() {
   const navigate = useCallback((s: ScreenName) => {
     setScreen(s);
     if (s !== "add-transaction") setEditTransactionId(null);
+    if (s !== "add-recurring") setEditRecurringId(null);
     if (s !== "recurring") setTargetRecurringId(null);
   }, []);
 
@@ -125,6 +129,16 @@ export default function App() {
     setScreen("add-transaction");
   }, []);
 
+  const handleOpenAddRecurring = useCallback(() => {
+    setEditRecurringId(null);
+    setScreen("add-recurring");
+  }, []);
+
+  const handleOpenEditRecurring = useCallback((id: string) => {
+    setEditRecurringId(id);
+    setScreen("add-recurring");
+  }, []);
+
   const handleSettingsChange = useCallback((s: AppSettings) => {
     setSettings(s);
   }, []);
@@ -141,7 +155,7 @@ export default function App() {
     return <AppLock settings={settings} onUnlock={() => setLocked(false)} />;
   }
 
-  const isFormScreen = screen === "add-transaction" || screen === "add-ai";
+  const isFormScreen = screen === "add-transaction" || screen === "add-ai" || screen === "add-recurring";
 
   return (
     <div className="h-[100dvh] w-full bg-gray-100 flex justify-center overflow-hidden">
@@ -157,7 +171,14 @@ export default function App() {
           {screen === "transactions" && <Transactions settings={settings} onEditTransaction={handleEditTransaction} onNavigate={navigate} />}
           {screen === "budgets" && <Budgets settings={settings} />}
           {screen === "reports" && <Reports settings={settings} />}
-          {screen === "recurring" && <Recurring settings={settings} targetRecurringId={targetRecurringId} />}
+          {screen === "recurring" && (
+            <Recurring
+              settings={settings}
+              targetRecurringId={targetRecurringId}
+              onOpenAdd={handleOpenAddRecurring}
+              onOpenEdit={handleOpenEditRecurring}
+            />
+          )}
           {screen === "import-export" && <ImportExport settings={settings} />}
           {screen === "settings" && <SettingsScreen settings={settings} onSettingsChange={handleSettingsChange} />}
           {screen === "add-transaction" && (
@@ -170,6 +191,14 @@ export default function App() {
           )}
           {screen === "add-ai" && (
             <AddWithAI settings={settings} onDone={() => navigate("transactions")} onCancel={() => navigate("dashboard")} />
+          )}
+          {screen === "add-recurring" && (
+            <AddRecurring
+              settings={settings}
+              editId={editRecurringId}
+              onDone={() => navigate("recurring")}
+              onCancel={() => navigate("recurring")}
+            />
           )}
         </main>
 

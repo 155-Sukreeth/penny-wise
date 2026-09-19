@@ -191,3 +191,15 @@ export function relativeDate(dateStr: string): string {
   if (pastDays < 365) return `${Math.floor(pastDays / 30)}mo ago`;
   return `${Math.floor(pastDays / 365)}y ago`;
 }
+
+export function calculateNextDate(from: string, frequency: string, customDays?: number): string {
+  const d = new Date(from + (from.length === 10 ? "T00:00:00" : ""));
+  if (frequency === "daily") d.setDate(d.getDate() + 1);
+  else if (frequency === "weekly") d.setDate(d.getDate() + 7);
+  else if (frequency === "monthly") d.setMonth(d.getMonth() + 1);
+  else if (frequency === "yearly") d.setFullYear(d.getFullYear() + 1);
+  else if (frequency === "custom" && customDays) d.setDate(d.getDate() + customDays);
+  else d.setDate(d.getDate() + 7);
+  return d.toISOString().slice(0, 10);
+}
+
