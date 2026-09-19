@@ -35,6 +35,7 @@ export function Recurring({
   const [tag, setTag] = useState<TagType>(TagType.Need);
   const [frequency, setFrequency] = useState<RecurringFrequency>(RecurringFrequency.Monthly);
   const [startDate, setStartDate] = useState(getTodayString());
+  const [nextDueDate, setNextDueDate] = useState(getTodayString());
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notifyDaysBefore, setNotifyDaysBefore] = useState(1);
   const [notifyTime, setNotifyTime] = useState("09:00");
@@ -59,7 +60,7 @@ export function Recurring({
     setEditingId(null);
     setType(TransactionType.Outflow); setAmount(""); setCategoryId(null); setAccountId(null);
     setMerchant(""); setNotes(""); setTag(TagType.Need); setFrequency(RecurringFrequency.Monthly);
-    setStartDate(getTodayString()); setNotificationsEnabled(false);
+    setStartDate(getTodayString()); setNextDueDate(getTodayString()); setNotificationsEnabled(false);
     setNotifyDaysBefore(1); setNotifyTime("09:00"); setRepeatUntilDue(false);
   };
 
@@ -79,6 +80,7 @@ export function Recurring({
     setTag(r.tag);
     setFrequency(r.frequency);
     setStartDate(r.start_date);
+    setNextDueDate(r.next_date || r.start_date);
     setNotificationsEnabled(r.notifications_enabled);
     setNotifyDaysBefore(r.notify_days_before ?? 1);
     setNotifyTime(r.notify_time || "09:00");
@@ -103,6 +105,7 @@ export function Recurring({
         tag,
         frequency,
         start_date: startDate,
+        next_date: nextDueDate || startDate,
         notifications_enabled: notificationsEnabled,
         notify_days_before: notifyDaysBefore,
         notify_time: notifyTime,
@@ -118,11 +121,12 @@ export function Recurring({
         }
       }
     } else {
-      const nextDate = calculateNextDate(startDate, frequency);
+      // The first due date of a newly created recurring transaction is its startDate!
+      const firstDueDate = startDate;
       const created = await createRecurringTransaction({
         type, amount: amt, category_id: categoryId, account_id: accountId,
         merchant: merchant || null, notes: notes || null, tag,
-        frequency, start_date: startDate, next_date: nextDate,
+        frequency, start_date: startDate, next_date: firstDueDate,
         notifications_enabled: notificationsEnabled,
         notify_days_before: notifyDaysBefore,
         notify_time: notifyTime,
@@ -271,7 +275,7 @@ export function Recurring({
                 <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
                   <div className="flex items-center gap-1">
                     <Calendar size={12} />
-                    <span>Next: {relativeDate(r.next_date)}</span>
+                    <span>Next: {relativeDate(r.next_date)} ({formatDate(r.next_date, settings)})</span>
                   </div>
                   {isOverdue && <span className="text-amber-500 font-medium">Overdue</span>}
                 </div>
@@ -365,8 +369,22 @@ export function Recurring({
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-2">Start Date</label>
-                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium" />
+                  <label className="text-xs text-gray-500 font-medium block mb-2">
+                    {editingId ? "Next Due Date" : "Start Date"}
+                  </label>
+                  <input
+                    type="date"
+                    value={editingId ? nextDueDate : startDate}
+                    onChange={e => {
+                      if (editingId) {
+                        setNextDueDate(e.target.value);
+                      } else {
+                        setStartDate(e.target.value);
+                        setNextDueDate(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium"
+                  />
                 </div>
               </div>
 

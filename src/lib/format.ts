@@ -161,11 +161,33 @@ export function relativeDate(dateStr: string): string {
   const date = new Date(dateStr + (dateStr.length === 10 ? "T00:00:00" : ""));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const diff = Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Yesterday";
-  if (diff < 7) return `${diff} days ago`;
-  if (diff < 30) return `${Math.floor(diff / 7)}w ago`;
-  if (diff < 365) return `${Math.floor(diff / 30)}mo ago`;
-  return `${Math.floor(diff / 365)}y ago`;
+
+  // Difference in calendar days (positive = future, negative = past)
+  const diffDays = Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return "Today";
+
+  // Future dates
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays > 1 && diffDays < 7) return `in ${diffDays} days`;
+  if (diffDays >= 7 && diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return `in ${weeks}w`;
+  }
+  if (diffDays >= 30 && diffDays < 365) {
+    const months = Math.floor(diffDays / 30);
+    return `in ${months}mo`;
+  }
+  if (diffDays >= 365) {
+    const years = Math.floor(diffDays / 365);
+    return `in ${years}y`;
+  }
+
+  // Past dates
+  const pastDays = Math.abs(diffDays);
+  if (pastDays === 1) return "Yesterday";
+  if (pastDays < 7) return `${pastDays} days ago`;
+  if (pastDays < 30) return `${Math.floor(pastDays / 7)}w ago`;
+  if (pastDays < 365) return `${Math.floor(pastDays / 30)}mo ago`;
+  return `${Math.floor(pastDays / 365)}y ago`;
 }
