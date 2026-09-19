@@ -45,6 +45,7 @@ export default function App() {
   const [screen, setScreen] = useState<ScreenName>("dashboard");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [editTransactionId, setEditTransactionId] = useState<string | null>(null);
+  const [targetRecurringId, setTargetRecurringId] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
 
   useEffect(() => {
@@ -61,11 +62,15 @@ export default function App() {
   const navigate = useCallback((s: ScreenName) => {
     setScreen(s);
     if (s !== "add-transaction") setEditTransactionId(null);
+    if (s !== "recurring") setTargetRecurringId(null);
   }, []);
 
   useEffect(() => {
     const unsubscribe = onNotificationAction((payload) => {
       if (payload.extra?.screen) {
+        if (payload.extra.recurringId) {
+          setTargetRecurringId(payload.extra.recurringId);
+        }
         navigate(payload.extra.screen as ScreenName);
       }
     });
@@ -103,7 +108,7 @@ export default function App() {
           {screen === "transactions" && <Transactions settings={settings} onEditTransaction={handleEditTransaction} onNavigate={navigate} />}
           {screen === "budgets" && <Budgets settings={settings} />}
           {screen === "reports" && <Reports settings={settings} />}
-          {screen === "recurring" && <Recurring settings={settings} />}
+          {screen === "recurring" && <Recurring settings={settings} targetRecurringId={targetRecurringId} />}
           {screen === "import-export" && <ImportExport settings={settings} />}
           {screen === "settings" && <SettingsScreen settings={settings} onSettingsChange={handleSettingsChange} />}
           {screen === "add-transaction" && (

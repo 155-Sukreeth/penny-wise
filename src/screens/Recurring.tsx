@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, X, Trash2, Repeat, Bell, BellOff, Calendar, Check, ArrowDownLeft, ArrowUpRight, Edit2 } from "lucide-react";
 import type { AppSettings, Category, RecurringTransaction } from "@/types";
 import { TransactionType, TagType, RecurringFrequency, TAGS, TAG_BG_COLORS } from "@/types";
@@ -7,14 +7,23 @@ import {
   deleteRecurringTransaction, fetchCategories, fetchAccounts, createTransaction
 } from "@/lib/data";
 import { formatCurrency, formatDate, getTodayString, relativeDate, formatInputAmount, parseInputAmount } from "@/lib/format";
+import { scheduleRecurringReminder, cancelRecurringReminder } from "@/lib/recurringReminders";
+import { db } from "@/lib/db";
 
-export function Recurring({ settings }: { settings: AppSettings }) {
+export function Recurring({
+  settings,
+  targetRecurringId,
+}: {
+  settings: AppSettings;
+  targetRecurringId?: string | null;
+}) {
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const highlightedRef = useRef<HTMLDivElement | null>(null);
 
   // form state
   const [type, setType] = useState<TransactionType>(TransactionType.Outflow);
@@ -29,6 +38,7 @@ export function Recurring({ settings }: { settings: AppSettings }) {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notifyDaysBefore, setNotifyDaysBefore] = useState(1);
   const [notifyTime, setNotifyTime] = useState("09:00");
+  const [repeatUntilDue, setRepeatUntilDue] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,7 +60,7 @@ export function Recurring({ settings }: { settings: AppSettings }) {
     setType(TransactionType.Outflow); setAmount(""); setCategoryId(null); setAccountId(null);
     setMerchant(""); setNotes(""); setTag(TagType.Need); setFrequency(RecurringFrequency.Monthly);
     setStartDate(getTodayString()); setNotificationsEnabled(false);
-    setNotifyDaysBefore(1); setNotifyTime("09:00");
+    setNotifyDaysBefore(1); setNotifyTime("09:00"); setRepeatUntilDue(false);
   };
 
   const handleOpenAdd = () => {
@@ -70,14 +80,17 @@ export function Recurring({ settings }: { settings: AppSettings }) {
     setFrequency(r.frequency);
     setStartDate(r.start_date);
     setNotificationsEnabled(r.notifications_enabled);
-    setNotifyDaysBefore(r.notify_days_before);
-    setNotifyTime(r.notify_time);
+    setNotifyDaysBefore(r.notify_days_before ?? 1);
+    setNotifyTime(r.notify_time || "09:00");
+    setRepeatUntilDue(r.repeat_until_acknowledged ?? false);
     setShowModal(true);
   };
 
   const handleSave = async () => {
     const amt = parseInputAmount(amount);
     if (!amt || !categoryId) return;
+
+    const cat = categories.find(c => c.id === categoryId);
 
     if (editingId) {
       await updateRecurringTransaction(editingId, {
@@ -93,18 +106,33 @@ export function Recurring({ settings }: { settings: AppSettings }) {
         notifications_enabled: notificationsEnabled,
         notify_days_before: notifyDaysBefore,
         notify_time: notifyTime,
+        repeat_until_acknowledged: repeatUntilDue,
       });
+
+      const updated = await db.recurring_transactions.get(editingId);
+      if (updated) {
+        if (updated.notifications_enabled && updated.is_active) {
+          await scheduleRecurringReminder(updated, cat?.name);
+        } else {
+          await cancelRecurringReminder(editingId);
+        }
+      }
     } else {
       const nextDate = calculateNextDate(startDate, frequency);
-      await createRecurringTransaction({
+      const created = await createRecurringTransaction({
         type, amount: amt, category_id: categoryId, account_id: accountId,
         merchant: merchant || null, notes: notes || null, tag,
         frequency, start_date: startDate, next_date: nextDate,
         notifications_enabled: notificationsEnabled,
         notify_days_before: notifyDaysBefore,
         notify_time: notifyTime,
+        repeat_until_acknowledged: repeatUntilDue,
         is_active: true,
       });
+
+      if (created.notifications_enabled) {
+        await scheduleRecurringReminder(created, cat?.name);
+      }
     }
 
     setShowModal(false);
@@ -114,12 +142,20 @@ export function Recurring({ settings }: { settings: AppSettings }) {
 
   const handleToggleNotifications = async (r: RecurringTransaction, e: React.MouseEvent) => {
     e.stopPropagation();
-    await updateRecurringTransaction(r.id, { notifications_enabled: !r.notifications_enabled });
+    const nextVal = !r.notifications_enabled;
+    await updateRecurringTransaction(r.id, { notifications_enabled: nextVal });
+    const cat = categories.find(c => c.id === r.category_id);
+    if (nextVal && r.is_active) {
+      await scheduleRecurringReminder({ ...r, notifications_enabled: true }, cat?.name);
+    } else {
+      await cancelRecurringReminder(r.id);
+    }
     load();
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    await cancelRecurringReminder(id);
     await deleteRecurringTransaction(id);
     load();
   };
@@ -137,12 +173,24 @@ export function Recurring({ settings }: { settings: AppSettings }) {
       tag: r.tag,
       tags: [],
     });
+    const nextDate = calculateNextDate(getTodayString(), r.frequency, r.custom_days || undefined);
     await updateRecurringTransaction(r.id, {
       last_generated: getTodayString(),
-      next_date: calculateNextDate(getTodayString(), r.frequency, r.custom_days || undefined),
+      next_date: nextDate,
     });
+    // Immediately reschedule notifications for the new period!
+    const cat = categories.find(c => c.id === r.category_id);
+    if (r.notifications_enabled && r.is_active) {
+      await scheduleRecurringReminder({ ...r, next_date: nextDate, last_generated: getTodayString() }, cat?.name);
+    }
     load();
   };
+
+  useEffect(() => {
+    if (targetRecurringId && highlightedRef.current) {
+      highlightedRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [targetRecurringId, recurring]);
 
   const filteredCategories = categories.filter(c => c.type === type);
 
@@ -182,14 +230,27 @@ export function Recurring({ settings }: { settings: AppSettings }) {
         </div>
       ) : (
         <div className="space-y-3">
+          {targetRecurringId && (
+            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3 flex items-center justify-between text-xs text-blue-700 animate-in fade-in">
+              <span>🔔 Reminder opened: Tap <strong>Log Now</strong> below to record this transaction.</span>
+            </div>
+          )}
           {recurring.map(r => {
             const cat = categories.find(c => c.id === r.category_id);
             const isOverdue = r.next_date < getTodayString() && r.is_active;
+            const isTarget = targetRecurringId === r.id;
             return (
               <div
                 key={r.id}
+                ref={isTarget ? highlightedRef : undefined}
                 onClick={() => handleOpenEdit(r)}
-                className={`bg-white rounded-2xl p-4 border transition-all cursor-pointer hover:border-gray-300 shadow-sm ${isOverdue ? "border-amber-200" : "border-gray-100"}`}
+                className={`bg-white rounded-2xl p-4 border transition-all cursor-pointer shadow-sm ${
+                  isTarget
+                    ? "border-blue-500 ring-2 ring-blue-500/30 shadow-md"
+                    : isOverdue
+                    ? "border-amber-200 hover:border-gray-300"
+                    : "border-gray-100 hover:border-gray-300"
+                }`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -326,13 +387,49 @@ export function Recurring({ settings }: { settings: AppSettings }) {
                   <Toggle checked={notificationsEnabled} onChange={setNotificationsEnabled} />
                 </div>
                 {notificationsEnabled && (
-                  <div className="space-y-3 pl-6">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">Remind</span>
-                      <input type="number" min={0} max={30} value={notifyDaysBefore} onChange={e => setNotifyDaysBefore(parseInt(e.target.value) || 0)} className="w-16 px-2 py-1.5 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100 text-center" />
-                      <span className="text-xs text-gray-500">day(s) before at</span>
-                      <input type="time" value={notifyTime} onChange={e => setNotifyTime(e.target.value)} className="px-2 py-1.5 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100" />
+                  <div className="space-y-3 bg-gray-50/70 rounded-2xl p-3.5 border border-gray-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-600 font-medium">Advance Notice</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={notifyDaysBefore}
+                          onChange={e => setNotifyDaysBefore(parseInt(e.target.value) || 0)}
+                          className="w-14 px-2 py-1.5 bg-white rounded-lg text-sm outline-none border border-gray-200 text-center font-semibold"
+                        />
+                        <span className="text-xs text-gray-500">
+                          {notifyDaysBefore === 0 ? "days (Due date only)" : notifyDaysBefore === 1 ? "day before" : "days before"}
+                        </span>
+                      </div>
                     </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-600 font-medium">Reminder Time</span>
+                      <input
+                        type="time"
+                        value={notifyTime}
+                        onChange={e => setNotifyTime(e.target.value)}
+                        className="px-2.5 py-1.5 bg-white rounded-lg text-xs outline-none border border-gray-200 font-semibold"
+                      />
+                    </div>
+
+                    {notifyDaysBefore > 0 && (
+                      <div className="pt-2 border-t border-gray-200/60">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-medium text-gray-700">Daily Countdown</p>
+                            <p className="text-[10px] text-gray-400">
+                              {repeatUntilDue
+                                ? `Remind daily starting ${notifyDaysBefore}d before up to due date`
+                                : `Remind once on advance day and on due date`}
+                            </p>
+                          </div>
+                          <Toggle checked={repeatUntilDue} onChange={setRepeatUntilDue} />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

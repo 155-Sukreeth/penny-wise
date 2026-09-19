@@ -14,6 +14,8 @@ import {
   cancelAllNotifications,
   type NotificationPermissionState
 } from "@/lib/notifications";
+import { syncAllRecurringReminders } from "@/lib/recurringReminders";
+import { NotificationTemplates } from "@/lib/notificationMessages";
 import {
   fetchCategories, createCategory, updateCategory, deleteCategory, reorderCategories,
   fetchAccounts, createAccount, updateAccount, deleteAccount, fetchPayeeRules, deletePayeeRule
@@ -605,6 +607,7 @@ function NotificationsSettings({ settings, onUpdate }: { settings: AppSettings; 
       setPermStatus(res);
       if (res === "granted") {
         onUpdate({ notificationsEnabled: true });
+        await syncAllRecurringReminders();
       } else {
         onUpdate({ notificationsEnabled: false });
       }
@@ -622,10 +625,11 @@ function NotificationsSettings({ settings, onUpdate }: { settings: AppSettings; 
     setTestSent(true);
     // Schedule test notification in 2 seconds
     const triggerTime = new Date(Date.now() + 2000);
+    const testCopy = NotificationTemplates.testNotification();
     await scheduleNotification({
       id: 999999,
-      title: "Test Notification",
-      body: "Notifications are working properly!",
+      title: testCopy.title,
+      body: testCopy.body,
       scheduleAt: triggerTime,
       channelId: "app_reminders",
       extra: { screen: "settings" },
