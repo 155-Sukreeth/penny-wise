@@ -8,7 +8,10 @@ import {
 } from "@/lib/data";
 import { formatCurrency, formatDate, getTodayString, relativeDate, formatInputAmount, parseInputAmount } from "@/lib/format";
 import { scheduleRecurringReminder, cancelRecurringReminder } from "@/lib/recurringReminders";
+import { checkNotificationPermissions, requestNotificationPermissions } from "@/lib/notifications";
+import { loadSettings, saveSettings } from "@/lib/settings";
 import { db } from "@/lib/db";
+
 
 export function Recurring({
   settings,
@@ -88,9 +91,46 @@ export function Recurring({
     setShowModal(true);
   };
 
+  const handleToggleFormNotifications = async (val: boolean) => {
+    if (val) {
+      const perm = await checkNotificationPermissions();
+      if (perm !== "granted") {
+        const requested = await requestNotificationPermissions();
+        if (requested === "denied") {
+          alert("Notification permissions are blocked in your browser. Please allow notifications in site settings to receive reminders.");
+          setNotificationsEnabled(false);
+          return;
+        }
+      }
+      const curSettings = await loadSettings();
+      if (!curSettings.notificationsEnabled) {
+        await saveSettings({ ...curSettings, notificationsEnabled: true });
+      }
+    }
+    setNotificationsEnabled(val);
+  };
+
   const handleSave = async () => {
     const amt = parseInputAmount(amount);
     if (!amt || !categoryId) return;
+
+    if (notificationsEnabled) {
+      const perm = await checkNotificationPermissions();
+      if (perm !== "granted") {
+        const req = await requestNotificationPermissions();
+        if (req === "granted") {
+          const curSettings = await loadSettings();
+          if (!curSettings.notificationsEnabled) {
+            await saveSettings({ ...curSettings, notificationsEnabled: true });
+          }
+        }
+      } else {
+        const curSettings = await loadSettings();
+        if (!curSettings.notificationsEnabled) {
+          await saveSettings({ ...curSettings, notificationsEnabled: true });
+        }
+      }
+    }
 
     const cat = categories.find(c => c.id === categoryId);
 
@@ -147,6 +187,21 @@ export function Recurring({
   const handleToggleNotifications = async (r: RecurringTransaction, e: React.MouseEvent) => {
     e.stopPropagation();
     const nextVal = !r.notifications_enabled;
+    if (nextVal) {
+      const perm = await checkNotificationPermissions();
+      if (perm !== "granted") {
+        const requested = await requestNotificationPermissions();
+        if (requested === "denied") {
+          alert("Notification permissions are blocked in your browser. Please allow notifications in site settings to receive reminders.");
+          return;
+        }
+      }
+      const curSettings = await loadSettings();
+      if (!curSettings.notificationsEnabled) {
+        await saveSettings({ ...curSettings, notificationsEnabled: true });
+      }
+    }
+
     await updateRecurringTransaction(r.id, { notifications_enabled: nextVal });
     const cat = categories.find(c => c.id === r.category_id);
     if (nextVal && r.is_active) {
@@ -156,6 +211,7 @@ export function Recurring({
     }
     load();
   };
+
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -402,7 +458,7 @@ export function Recurring({
                     <Bell size={16} className="text-gray-400" />
                     <span className="text-sm font-medium text-gray-700">Notifications Reminder</span>
                   </div>
-                  <Toggle checked={notificationsEnabled} onChange={setNotificationsEnabled} />
+                  <Toggle checked={notificationsEnabled} onChange={handleToggleFormNotifications} />
                 </div>
                 {notificationsEnabled && (
                   <div className="space-y-3 bg-gray-50/70 rounded-2xl p-3.5 border border-gray-100">

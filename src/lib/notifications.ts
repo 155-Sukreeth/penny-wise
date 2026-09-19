@@ -30,6 +30,31 @@ type ActionListener = (payload: NotificationActionPayload) => void;
 const actionListeners = new Set<ActionListener>();
 let isInitialized = false;
 
+export type InAppNotificationListener = (notification: AppNotification) => void;
+const inAppListeners = new Set<InAppNotificationListener>();
+const webTimers = new Map<number, any>();
+
+/**
+ * Register a listener that fires whenever an in-app notification is triggered.
+ * Allows showing floating in-app toasts/banners.
+ */
+export function onInAppNotification(listener: InAppNotificationListener): () => void {
+  inAppListeners.add(listener);
+  return () => {
+    inAppListeners.delete(listener);
+  };
+}
+
+export function dispatchInAppNotification(notification: AppNotification) {
+  for (const listener of inAppListeners) {
+    try {
+      listener(notification);
+    } catch (err) {
+      console.error("Error in in-app notification listener:", err);
+    }
+  }
+}
+
 /**
  * Deterministic string to 31-bit positive integer hash.
  * Useful for mapping UUIDs or string keys to numeric notification IDs required by native Android/iOS.
@@ -53,7 +78,7 @@ export function onNotificationAction(listener: ActionListener): () => void {
   };
 }
 
-function dispatchNotificationAction(payload: NotificationActionPayload) {
+export function dispatchNotificationAction(payload: NotificationActionPayload) {
   for (const listener of actionListeners) {
     try {
       listener(payload);
@@ -62,6 +87,7 @@ function dispatchNotificationAction(payload: NotificationActionPayload) {
     }
   }
 }
+
 
 /**
  * Initialize notification channels and native listeners.
@@ -238,38 +264,65 @@ export async function scheduleNotificationBatch(notifications: AppNotification[]
 
   // Web / PWA fallback
   for (const n of notifications) {
+    if (webTimers.has(n.id)) {
+      clearTimeout(webTimers.get(n.id));
+      webTimers.delete(n.id);
+    }
+
     const delayMs = n.scheduleAt ? n.scheduleAt.getTime() - Date.now() : 0;
 
-    const fireWeb = () => {
-      if (typeof window === "undefined" || !("Notification" in window)) return;
-      if (Notification.permission !== "granted") return;
+    const fireWeb = async () => {
+      // 1. Always dispatch in-app notification for foreground user feedback
+      dispatchInAppNotification(n);
 
-      try {
-        const notif = new Notification(n.title, {
-          body: n.body,
-          data: n.extra,
-          icon: "/icon-192.png",
-          badge: "/favicon.png",
-        });
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try {
+          navigator.vibrate([100, 50, 100]);
+        } catch (_) {}
+      }
 
-        notif.onclick = () => {
-          window.focus();
-          dispatchNotificationAction({
-            notificationId: n.id,
-            extra: n.extra,
+      // 2. If browser system notification permission is granted, display desktop/system notification
+      if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+        // Try ServiceWorker first if available (works on PWAs and Chromium)
+        if ("serviceWorker" in navigator) {
+          try {
+            const reg = await navigator.serviceWorker.getRegistration();
+            if (reg) {
+              await reg.showNotification(n.title, {
+                body: n.body,
+                icon: "/icon-192.png",
+                badge: "/favicon.png",
+                data: {
+                  id: n.id,
+                  extra: n.extra,
+                },
+              });
+              return;
+            }
+          } catch (swErr) {
+            console.warn("ServiceWorker showNotification failed, trying Notification constructor:", swErr);
+          }
+        }
+
+        // Direct Notification constructor fallback
+        try {
+          const notif = new Notification(n.title, {
+            body: n.body,
+            data: n.extra,
+            icon: "/icon-192.png",
+            badge: "/favicon.png",
           });
-          notif.close();
-        };
-      } catch (e) {
-        console.warn("Direct Notification constructor failed, trying ServiceWorker fallback:", e);
-        if ("serviceWorker" in navigator && navigator.serviceWorker.ready) {
-          navigator.serviceWorker.ready.then((reg) => {
-            reg.showNotification(n.title, {
-              body: n.body,
-              data: n.extra,
-              icon: "/icon-192.png",
+
+          notif.onclick = () => {
+            window.focus();
+            dispatchNotificationAction({
+              notificationId: n.id,
+              extra: n.extra,
             });
-          });
+            notif.close();
+          };
+        } catch (e) {
+          console.error("Direct Notification constructor failed:", e);
         }
       }
     };
@@ -277,8 +330,11 @@ export async function scheduleNotificationBatch(notifications: AppNotification[]
     if (delayMs <= 0) {
       fireWeb();
     } else {
-      // In-browser timer fallback for active session
-      setTimeout(fireWeb, delayMs);
+      const timerId = setTimeout(() => {
+        webTimers.delete(n.id);
+        fireWeb();
+      }, delayMs);
+      webTimers.set(n.id, timerId);
     }
   }
 }
@@ -296,6 +352,14 @@ export async function cancelNotification(id: number): Promise<void> {
 export async function cancelNotificationBatch(ids: number[]): Promise<void> {
   if (ids.length === 0) return;
 
+  // Clear web timers
+  for (const id of ids) {
+    if (webTimers.has(id)) {
+      clearTimeout(webTimers.get(id));
+      webTimers.delete(id);
+    }
+  }
+
   if (Capacitor.isNativePlatform()) {
     try {
       await LocalNotifications.cancel({
@@ -311,6 +375,11 @@ export async function cancelNotificationBatch(ids: number[]): Promise<void> {
  * Cancel all scheduled pending notifications.
  */
 export async function cancelAllNotifications(): Promise<void> {
+  for (const timerId of webTimers.values()) {
+    clearTimeout(timerId);
+  }
+  webTimers.clear();
+
   if (Capacitor.isNativePlatform()) {
     try {
       const pending = await LocalNotifications.getPending();

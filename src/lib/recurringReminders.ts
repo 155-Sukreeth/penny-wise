@@ -1,9 +1,10 @@
 import { db } from "@/lib/db";
-import { loadSettings } from "@/lib/settings";
+import { loadSettings, saveSettings } from "@/lib/settings";
 import { formatCurrency } from "@/lib/format";
 import {
   scheduleNotificationBatch,
   cancelNotificationBatch,
+  checkNotificationPermissions,
   hashStringToId,
   NOTIFICATION_CHANNELS,
   type AppNotification,
@@ -36,11 +37,19 @@ export async function scheduleRecurringReminder(
 
   const settings = await loadSettings();
   if (!settings.notificationsEnabled) {
-    return;
+    // If notification permission is already granted, automatically enable settings
+    const perm = await checkNotificationPermissions();
+    if (perm === "granted") {
+      await saveSettings({ ...settings, notificationsEnabled: true });
+    } else {
+      return;
+    }
   }
 
   const [year, month, day] = item.next_date.split("-").map(Number);
-  const [hour, minute] = (item.notify_time || "09:00").split(":").map(Number);
+  const [hourStr, minStr] = (item.notify_time || "09:00").split(":");
+  const hour = isNaN(Number(hourStr)) ? 9 : Number(hourStr);
+  const minute = isNaN(Number(minStr)) ? 0 : Number(minStr);
 
   if (!year || !month || !day) return;
 
@@ -70,9 +79,9 @@ export async function scheduleRecurringReminder(
 
   for (const daysRemaining of daysToSchedule) {
     // Construct trigger date: next_date minus daysRemaining at notify_time
-    const triggerDate = new Date(year, month - 1, day - daysRemaining, hour || 9, minute || 0, 0, 0);
+    const triggerDate = new Date(year, month - 1, day - daysRemaining, hour, minute, 0, 0);
 
-    // Only schedule triggers in the future
+    // Only schedule triggers strictly in the future
     if (triggerDate.getTime() > now) {
       const copy = NotificationTemplates.recurringReminder({
         name,
@@ -130,7 +139,12 @@ export async function syncAllRecurringReminders(): Promise<void> {
   }
 
   if (!settings.notificationsEnabled) {
-    return;
+    const perm = await checkNotificationPermissions();
+    if (perm === "granted") {
+      await saveSettings({ ...settings, notificationsEnabled: true });
+    } else {
+      return;
+    }
   }
 
   // Reschedule for all active items with notifications enabled
@@ -141,3 +155,4 @@ export async function syncAllRecurringReminders(): Promise<void> {
     }
   }
 }
+

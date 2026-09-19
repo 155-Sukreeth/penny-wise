@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { Home, ArrowLeftRight, PiggyBank, FileBarChart, Repeat, Download, Settings as SettingsIcon, Plus } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { loadSettings } from "@/lib/settings";
-import { initNotifications, onNotificationAction } from "@/lib/notifications";
+import { initNotifications, onNotificationAction, onInAppNotification, type AppNotification } from "@/lib/notifications";
+import { syncAllRecurringReminders } from "@/lib/recurringReminders";
+import { NotificationToast } from "@/components/NotificationToast";
 import { Dashboard } from "@/screens/Dashboard";
 import { Transactions } from "@/screens/Transactions";
 import { Budgets } from "@/screens/Budgets";
@@ -46,6 +48,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [editTransactionId, setEditTransactionId] = useState<string | null>(null);
   const [targetRecurringId, setTargetRecurringId] = useState<string | null>(null);
+  const [activeToast, setActiveToast] = useState<AppNotification | null>(null);
   const [locked, setLocked] = useState(false);
 
   useEffect(() => {
@@ -54,9 +57,20 @@ export default function App() {
       if (s.appLockEnabled && s.appLockPin) {
         setLocked(true);
       }
+      if (s.notificationsEnabled) {
+        syncAllRecurringReminders();
+      }
     });
 
     initNotifications();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncAllRecurringReminders();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
   const navigate = useCallback((s: ScreenName) => {
@@ -75,6 +89,23 @@ export default function App() {
       }
     });
     return () => unsubscribe();
+  }, [navigate]);
+
+  useEffect(() => {
+    const unsubscribe = onInAppNotification((notif) => {
+      setActiveToast(notif);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleToastAction = useCallback((notif: AppNotification) => {
+    setActiveToast(null);
+    if (notif.extra?.screen) {
+      if (notif.extra.recurringId) {
+        setTargetRecurringId(notif.extra.recurringId);
+      }
+      navigate(notif.extra.screen as ScreenName);
+    }
   }, [navigate]);
 
   const handleEditTransaction = useCallback((id: string) => {
@@ -103,6 +134,12 @@ export default function App() {
   return (
     <div className="h-[100dvh] w-full bg-gray-100 flex justify-center overflow-hidden">
       <div className="w-full max-w-md flex flex-col h-full bg-gray-50 relative shadow-xl overflow-hidden">
+        <NotificationToast
+          notification={activeToast}
+          onClose={() => setActiveToast(null)}
+          onAction={handleToastAction}
+        />
+
         <main className="flex-1 overflow-y-auto">
           {screen === "dashboard" && <Dashboard settings={settings} onNavigate={navigate} onEditTransaction={handleEditTransaction} />}
           {screen === "transactions" && <Transactions settings={settings} onEditTransaction={handleEditTransaction} onNavigate={navigate} />}
