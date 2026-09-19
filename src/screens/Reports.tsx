@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { FileBarChart, Download, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, ChevronRight } from "lucide-react";
+import { FileBarChart, Download, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, ChevronRight, Check, Loader } from "lucide-react";
 import type { AppSettings, Category, TagType } from "@/types";
 import { TAGS, TAG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchBudgets, type TransactionWithNames } from "@/lib/data";
 import { formatCurrency, formatCurrencyWithSign, getMonthBounds, getYearBounds, getPeriodBounds, periodLabel, formatDate } from "@/lib/format";
+import { exportFile } from "@/lib/exportUtils";
 import { DonutChart } from "@/components/charts/DonutChart";
 import { BarChart } from "@/components/charts/BarChart";
 import { LineChart } from "@/components/charts/LineChart";
@@ -138,20 +139,42 @@ export function Reports({ settings }: { settings: AppSettings }) {
     transactions.filter(t => t.type === "outflow").sort((a, b) => Number(b.amount) - Number(a.amount)).slice(0, 10),
   [transactions]);
 
-  const exportCSV = () => {
-    const headers = ["Date", "Type", "Amount", "Category", "Merchant", "Account", "Tag", "Notes"];
-    const rows = transactions.map(t => [
-      t.date, t.type, t.amount, t.category_name || "", t.merchant || "",
-      t.account_name || "", t.tag, (t.notes || "").replace(/,/g, ";"),
-    ]);
-    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `report-${period}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const exportCSV = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const headers = ["Date", "Type", "Amount", "Category", "Merchant", "Account", "Tag", "Notes"];
+      const rows = transactions.map(t => [
+        t.date,
+        t.type,
+        t.amount,
+        t.category_name || "",
+        t.merchant || "",
+        t.account_name || "",
+        t.tag,
+        (t.notes || "").replace(/"/g, '""'),
+      ]);
+      const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
+      const filename = `report-${period}-${new Date().toISOString().slice(0, 10)}.csv`;
+      const result = await exportFile({
+        content: csv,
+        filename,
+        mimeType: "text/csv",
+        dialogTitle: `Export ${periodLabel(period)} Report CSV`,
+      });
+
+      if (result.success) {
+        setExportMsg(result.method === "shared" ? "Report shared successfully!" : "Report downloaded!");
+        setTimeout(() => setExportMsg(null), 3000);
+      }
+    } catch (err) {
+      console.error("Failed to export report:", err);
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (loading) {
@@ -174,12 +197,20 @@ export function Reports({ settings }: { settings: AppSettings }) {
         </div>
         <button
           onClick={exportCSV}
-          className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-medium text-gray-600 active:scale-95 transition-transform"
+          disabled={exporting}
+          className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-medium text-gray-600 active:scale-95 transition-transform disabled:opacity-50"
         >
-          <Download size={14} />
+          {exporting ? <Loader size={14} className="animate-spin" /> : <Download size={14} />}
           Export
         </button>
       </div>
+
+      {exportMsg && (
+        <div className="flex items-center gap-2 p-3 mb-4 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-medium">
+          <Check size={14} className="flex-shrink-0" />
+          <span>{exportMsg}</span>
+        </div>
+      )}
 
       <div className="flex gap-1.5 mb-4 overflow-x-auto no-scrollbar -mx-4 px-4">
         {["month", "last_month", "year"].map(p => (
