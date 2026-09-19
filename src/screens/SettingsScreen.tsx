@@ -685,9 +685,68 @@ function NotificationsSettings({ settings, onUpdate }: { settings: AppSettings; 
         )}
       </div>
 
+      <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Overdue Bill Alerts</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Remind about bills that passed their due date</p>
+          </div>
+          <Toggle
+            checked={settings.overdueRemindersEnabled ?? true}
+            onChange={async (v) => {
+              onUpdate({ overdueRemindersEnabled: v });
+              await syncAllRecurringReminders();
+            }}
+          />
+        </div>
+
+        {(settings.overdueRemindersEnabled ?? true) && (
+          <div className="pt-3 border-t border-gray-100 space-y-3">
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1.5">Remind After Due Date</label>
+              <div className="flex gap-2">
+                {[1, 2, 3].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={async () => {
+                      onUpdate({ overdueDaysLimit: days });
+                      await syncAllRecurringReminders();
+                    }}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                      (settings.overdueDaysLimit ?? 2) === days
+                        ? "bg-gray-900 text-white"
+                        : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    {days === 1 ? "1 day" : `Up to ${days} days`}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Automatically capped so it never collides with next cycle's reminder.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-600 font-medium">Alert Time</span>
+              <input
+                type="time"
+                value={settings.overdueNotifyTime || "10:00"}
+                onChange={async (e) => {
+                  onUpdate({ overdueNotifyTime: e.target.value });
+                  await syncAllRecurringReminders();
+                }}
+                className="px-2.5 py-1 bg-gray-50 rounded-lg text-xs outline-none border border-gray-200 font-semibold"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
         <p className="text-xs text-blue-700">
-          Notification timing and repetition are configured per recurring transaction in the Recurring tab.
+          Advance reminder notice and repetition are configured per recurring transaction in the Recurring tab.
         </p>
       </div>
     </div>

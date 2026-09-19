@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
-import { TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, Calendar, Sparkles, ChevronRight } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, Calendar, Sparkles, ChevronRight, AlertCircle } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { TAG_COLORS, TAGS, type TagType } from "@/types";
-import { fetchTransactions, fetchCategories, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, formatCurrencyWithSign, getPeriodBounds, periodLabel, relativeDate, getMonthBounds, getLastMonthBounds, formatDate } from "@/lib/format";
+import { fetchTransactions, fetchCategories, fetchRecurringTransactions, type TransactionWithNames } from "@/lib/data";
+import { formatCurrency, formatCurrencyWithSign, getPeriodBounds, periodLabel, relativeDate, getMonthBounds, getLastMonthBounds, formatDate, getTodayString } from "@/lib/format";
 import { DonutChart } from "@/components/charts/DonutChart";
 import { BarChart } from "@/components/charts/BarChart";
 import { LineChart } from "@/components/charts/LineChart";
@@ -30,6 +30,8 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
   const [transactions, setTransactions] = useState<TransactionWithNames[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAIButton, setShowAIButton] = useState(false);
+  const [overdueCount, setOverdueCount] = useState(0);
+  const [overdueTotal, setOverdueTotal] = useState(0);
 
   useEffect(() => {
     if (settings.aiSettings?.apiKey) {
@@ -37,8 +39,21 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
     }
   }, [settings.aiSettings]);
 
+  const loadOverdue = async () => {
+    try {
+      const rec = await fetchRecurringTransactions();
+      const today = getTodayString();
+      const overdue = rec.filter(r => r.is_active && r.next_date < today);
+      setOverdueCount(overdue.length);
+      setOverdueTotal(overdue.reduce((sum, r) => sum + Number(r.amount), 0));
+    } catch (e) {
+      console.error("Failed to load overdue recurring bills:", e);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
+    loadOverdue();
     let start: string;
     let end: string;
     if (period === "custom") {
@@ -246,6 +261,34 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
               className="w-full bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none border border-gray-100 font-medium"
             />
           </div>
+        </div>
+      )}
+
+      {overdueCount > 0 && (
+        <div className="mb-4 bg-amber-50/90 border border-amber-200/80 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+              <AlertCircle size={17} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-amber-900">
+                {overdueCount === 1 ? "1 overdue bill" : `${overdueCount} overdue bills`}
+                <span className="font-normal text-amber-700 ml-1">
+                  ({formatCurrency(overdueTotal, settings)})
+                </span>
+              </p>
+              <p className="text-[11px] text-amber-700/80 truncate">
+                Pending payment in Recurring bills
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate("recurring")}
+            className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-semibold rounded-xl shadow-xs transition-all flex-shrink-0"
+          >
+            Resolve
+            <ChevronRight size={13} />
+          </button>
         </div>
       )}
 

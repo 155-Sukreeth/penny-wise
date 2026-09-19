@@ -82,9 +82,11 @@ export interface Budget {
 }
 
 export enum RecurringFrequency {
+  Daily = "daily",
   Weekly = "weekly",
   Monthly = "monthly",
   Yearly = "yearly",
+  Custom = "custom",
 }
 
 export interface RecurringTransaction {
@@ -138,6 +140,9 @@ export interface AppSettings {
   startScreen: string;
   aiSettings: AISettings;
   notificationsEnabled: boolean;
+  overdueRemindersEnabled: boolean;
+  overdueDaysLimit: number;
+  overdueNotifyTime: string;
   appLockEnabled: boolean;
   appLockPin: string | null;
 }
@@ -153,6 +158,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     apiKey: "",
   },
   notificationsEnabled: false,
+  overdueRemindersEnabled: true,
+  overdueDaysLimit: 2,
+  overdueNotifyTime: "10:00",
   appLockEnabled: false,
   appLockPin: null,
 };

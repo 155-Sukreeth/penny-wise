@@ -1,4 +1,6 @@
 import { db, ensureInitialized } from "./db";
+import { getTodayString, calculateNextDate } from "./format";
+import { scheduleRecurringReminder, cancelRecurringReminder } from "./recurringReminders";
 import {
   type Category,
   type Account,
@@ -276,6 +278,35 @@ export async function updateRecurringTransaction(
 export async function deleteRecurringTransaction(id: string): Promise<void> {
   await db.recurring_transactions.delete(id);
 }
+
+/**
+ * Skip the current recurring cycle without recording a ledger transaction.
+ * Advances next_date to the next cycle and reschedules notification triggers.
+ */
+export async function skipRecurringTransaction(id: string): Promise<RecurringTransaction | null> {
+  await ensureInitialized();
+  const item = await db.recurring_transactions.get(id);
+  if (!item) return null;
+
+  const nextDate = calculateNextDate(item.next_date, item.frequency, item.custom_days || undefined);
+  const updates: Partial<RecurringTransaction> = {
+    next_date: nextDate,
+    last_generated: getTodayString(),
+  };
+
+  await db.recurring_transactions.update(id, updates);
+  const updated = { ...item, ...updates };
+
+  if (updated.notifications_enabled && updated.is_active) {
+    const cat = updated.category_id ? await db.categories.get(updated.category_id) : undefined;
+    await scheduleRecurringReminder(updated, cat?.name);
+  } else {
+    await cancelRecurringReminder(id);
+  }
+
+  return updated;
+}
+
 
 export async function fetchPayeeRules(): Promise<PayeeRule[]> {
   await ensureInitialized();
