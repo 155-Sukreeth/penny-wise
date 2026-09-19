@@ -1,6 +1,5 @@
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
-import { Share } from "@capacitor/share";
 
 export interface ExportFileOptions {
   content: string;
@@ -14,43 +13,57 @@ export interface ExportResult {
   method?: "shared" | "downloaded";
   cancelled?: boolean;
   error?: string;
+  path?: string;
 }
 
 /**
  * Universal file export handler:
  * - Native Mobile App (Capacitor Android / iOS):
- *   Writes file to the app's cache directory via Filesystem and opens the native OS share sheet.
+ *   Directly saves the file to the user's public Documents directory using Filesystem,
+ *   so it downloads directly without triggering the OS share sheet.
  * - Web / PWA (Desktop & Mobile Browser):
  *   Directly downloads the file to the user's Downloads folder via a Blob URL.
  */
 export async function exportFile(options: ExportFileOptions): Promise<ExportResult> {
-  const { content, filename, mimeType, dialogTitle = "Export File" } = options;
+  const { content, filename, mimeType } = options;
 
   try {
-    // 1. Native Mobile App (Android / iOS via Capacitor)
+    // 1. Native Mobile App (Android / iOS via Capacitor): Direct file save
     if (Capacitor.isNativePlatform()) {
-      const fileResult = await Filesystem.writeFile({
-        path: filename,
-        data: content,
-        directory: Directory.Cache,
-        encoding: Encoding.UTF8,
-      });
-
       try {
-        await Share.share({
-          title: filename,
-          url: fileResult.uri,
-          dialogTitle,
-        });
-        return { success: true, method: "shared" };
-      } catch (shareErr) {
-        const err = shareErr as Error;
-        // User dismissed or cancelled the share dialog
-        if (err?.name === "AbortError" || /cancel|dismiss/i.test(err?.message || "")) {
-          return { success: false, cancelled: true };
+        const permStatus = await Filesystem.checkPermissions();
+        if (permStatus.publicStorage !== "granted") {
+          await Filesystem.requestPermissions();
         }
-        throw shareErr;
+      } catch {
+        // Permissions check is optional on modern scoped storage (Android 11+)
       }
+
+      let fileResult;
+      try {
+        fileResult = await Filesystem.writeFile({
+          path: filename,
+          data: content,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8,
+          recursive: true,
+        });
+      } catch (docErr) {
+        console.warn("Saving to Documents failed, falling back to External storage:", docErr);
+        fileResult = await Filesystem.writeFile({
+          path: filename,
+          data: content,
+          directory: Directory.External,
+          encoding: Encoding.UTF8,
+          recursive: true,
+        });
+      }
+
+      return {
+        success: true,
+        method: "downloaded",
+        path: fileResult.uri,
+      };
     }
 
     // 2. Web / PWA: Direct file download to Downloads folder
