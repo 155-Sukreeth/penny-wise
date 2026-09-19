@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Settings as SettingsIcon, ChevronRight, Tag, CreditCard, Bell, Lock, Database,
-  Sparkles, Plus, X, Trash2, Check, GripVertical, ArrowUp, ArrowDown, Globe, Palette
+  Sparkles, Plus, X, Trash2, Check, GripVertical, ArrowUp, ArrowDown, Globe, Palette, Smartphone
 } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import type { AppSettings, Category } from "@/types";
 import { AIProvider, TransactionType, TagType, AppTheme, TAGS, TAG_BG_COLORS } from "@/types";
 import { saveSettings, clearSettingsCache } from "@/lib/settings";
@@ -21,6 +22,37 @@ interface SettingsScreenProps {
 export function SettingsScreen({ settings, onSettingsChange }: SettingsScreenProps) {
   const [page, setPage] = useState<SubPage>("menu");
   const [local, setLocal] = useState<AppSettings>(settings);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+    setIsStandalone(standalone);
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else {
+      setShowInstallModal(true);
+    }
+  };
+
+  const isNative = Capacitor.isNativePlatform();
+  const canInstallPWA = !isNative && !isStandalone;
 
   const update = useCallback((updates: Partial<AppSettings>) => {
     const next = { ...local, ...updates };
@@ -64,6 +96,18 @@ export function SettingsScreen({ settings, onSettingsChange }: SettingsScreenPro
         <NavRow icon={<Bell size={18} className="text-gray-600" />} title="Notifications" subtitle="Recurring reminders" onClick={() => setPage("notifications")} />
         <NavRow icon={<Lock size={18} className="text-gray-600" />} title="Security" subtitle={local.appLockEnabled ? "App lock enabled" : "No lock set"} onClick={() => setPage("security")} />
         <NavRow icon={<Database size={18} className="text-gray-600" />} title="Data" subtitle="Export, import, backup" onClick={() => setPage("data")} />
+
+        {canInstallPWA && (
+          <>
+            <SectionTitle>App</SectionTitle>
+            <NavRow
+              icon={<Smartphone size={18} className="text-gray-600" />}
+              title="Install App"
+              subtitle="Add to home screen for offline access"
+              onClick={handleInstallClick}
+            />
+          </>
+        )}
       </div>
 
       <div className="flex flex-col items-center justify-center mt-10 mb-4">
@@ -71,6 +115,57 @@ export function SettingsScreen({ settings, onSettingsChange }: SettingsScreenPro
         <p className="text-xs font-semibold text-gray-700">PennyWise</p>
         <p className="text-[11px] text-gray-400">v1.0.0 · Offline-First & Private</p>
       </div>
+
+      {/* PWA Installation Instructions Modal */}
+      {showInstallModal && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setShowInstallModal(false)}
+        >
+          <div
+            className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center">
+                <Smartphone size={20} />
+              </div>
+              <button
+                onClick={() => setShowInstallModal(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <h3 className="text-base font-bold text-gray-900 mb-1.5">
+              Install PennyWise
+            </h3>
+            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+              Install PennyWise to your device for a full-screen experience and fast offline access.
+            </p>
+
+            <div className="bg-gray-50 rounded-2xl p-4 space-y-3 mb-5 text-xs text-gray-600">
+              <div className="flex items-start gap-2.5">
+                <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-800 font-bold flex items-center justify-center flex-shrink-0 text-[10px]">1</span>
+                <span>Tap the <strong>Share</strong> icon (iOS Safari) or the <strong>Menu (⋮)</strong> icon (Chrome / Android).</span>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-800 font-bold flex items-center justify-center flex-shrink-0 text-[10px]">2</span>
+                <span>Select <strong>Add to Home Screen</strong> or <strong>Install App</strong>.</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowInstallModal(false)}
+              className="w-full py-3 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-semibold shadow-xs active:scale-[0.98] transition"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,11 +2,14 @@
 
 > **Smart, Simple & 100% Private Expense Tracking**
 
+[![Open Web App / PWA](https://img.shields.io/badge/Launch%20App-penny--wise--one--liard.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://penny-wise-one-liard.vercel.app)
+[![Download APK](https://img.shields.io/badge/Download-PennyWise.apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/155-Sukreeth/penny-wise/releases/latest/download/PennyWise.apk)
+
 PennyWise is a modern personal finance app designed to help you understand your spending habits without compromising your privacy. No ads, no cloud tracking, and no subscriptions — everything stays securely on your device.
 
-
-![GitHub all releases](https://img.shields.io/github/downloads/155-Sukreeth/penny-wise/total)
-![GitHub downloads (pre-release)](https://img.shields.io/github/downloads-pre/155-Sukreeth/penny-wise/latest/total)
+[![GitHub all releases](https://img.shields.io/github/downloads/155-Sukreeth/penny-wise/total)](https://github.com/155-Sukreeth/penny-wise/releases)
+[![GitHub downloads (pre-release)](https://img.shields.io/github/downloads-pre/155-Sukreeth/penny-wise/latest/total)](https://github.com/155-Sukreeth/penny-wise/releases)
+[![Latest Release](https://img.shields.io/github/v/release/155-Sukreeth/penny-wise?logo=github)](https://github.com/155-Sukreeth/penny-wise/releases/latest)
 
 ---
 
@@ -59,21 +62,21 @@ PennyWise is a modern personal finance app designed to help you understand your 
 ## 📲 How to Install
 
 ### Option 1: Android App (`.apk`)
-1. Download the latest **`PennyWise.apk`** to your phone.
-2. Tap the downloaded file and select **Install** *(if prompted, enable "Allow from this source")*.
-3. Open PennyWise and start tracking immediately — no setup required!
+1. Download [**`PennyWise.apk` (Direct Download)**](https://github.com/155-Sukreeth/penny-wise/releases/latest/download/PennyWise.apk) or check the [**GitHub Releases**](https://github.com/155-Sukreeth/penny-wise/releases/latest) page.
+2. Tap the downloaded `.apk` file and select **Install** *(if prompted, enable "Allow from this source")*.
+3. Open PennyWise and start tracking immediately — no account or internet required!
 
 ---
 
 ### Option 2: Progressive Web App (PWA / iPhone / Desktop)
-PennyWise can be installed directly from your browser without using an app store:
+PennyWise is live at [**penny-wise-one-liard.vercel.app**](https://penny-wise-one-liard.vercel.app) and can be installed directly from your browser:
 
 * **iPhone / iPad (Safari):**  
-  Open the app link -> Tap the **Share** button (box with up arrow) -> Select **"Add to Home Screen"**.
+  Open [penny-wise-one-liard.vercel.app](https://penny-wise-one-liard.vercel.app) → Tap the **Share** button (box with up arrow) → Select **"Add to Home Screen"**.
 * **Android (Chrome / Brave / Edge):**  
-  Open the app link -> Tap the menu `⋮` -> Select **"Install app"** or **"Add to Home screen"**.
+  Open [penny-wise-one-liard.vercel.app](https://penny-wise-one-liard.vercel.app) → Tap **"Install App"** inside Settings or tap the menu `⋮` → Select **"Install app"** / **"Add to Home screen"**.
 * **PC / Mac (Chrome / Edge):**  
-  Open the app link -> Click the **Install (🖥️)** icon in the address bar.
+  Open [penny-wise-one-liard.vercel.app](https://penny-wise-one-liard.vercel.app) → Click the **Install (🖥️)** icon in the address bar.
 
 ---
 
