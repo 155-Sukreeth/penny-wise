@@ -1,189 +1,46 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Plus, X, Trash2, Repeat, Bell, BellOff, Calendar, Check, ArrowDownLeft, ArrowUpRight, Edit2, AlertCircle, FastForward } from "lucide-react";
+import { Plus, Trash2, Repeat, Bell, BellOff, Calendar, Check, ArrowDownLeft, ArrowUpRight, Edit2, AlertCircle, FastForward } from "lucide-react";
 import type { AppSettings, Category, RecurringTransaction } from "@/types";
-import { TransactionType, TagType, RecurringFrequency, TAGS, TAG_BG_COLORS } from "@/types";
 import {
-  fetchRecurringTransactions, createRecurringTransaction, updateRecurringTransaction,
-  deleteRecurringTransaction, fetchCategories, fetchAccounts, createTransaction,
+  fetchRecurringTransactions, updateRecurringTransaction,
+  deleteRecurringTransaction, fetchCategories, createTransaction,
   skipRecurringTransaction
 } from "@/lib/data";
-import { formatCurrency, formatDate, getTodayString, relativeDate, formatInputAmount, parseInputAmount, calculateNextDate } from "@/lib/format";
+import { formatCurrency, formatDate, getTodayString, relativeDate, calculateNextDate } from "@/lib/format";
 import { scheduleRecurringReminder, cancelRecurringReminder } from "@/lib/recurringReminders";
 import { checkNotificationPermissions, requestNotificationPermissions } from "@/lib/notifications";
 import { loadSettings, saveSettings } from "@/lib/settings";
-import { db } from "@/lib/db";
 
+interface RecurringProps {
+  settings: AppSettings;
+  targetRecurringId?: string | null;
+  onOpenAdd: () => void;
+  onOpenEdit: (id: string) => void;
+}
 
 export function Recurring({
   settings,
   targetRecurringId,
-}: {
-  settings: AppSettings;
-  targetRecurringId?: string | null;
-}) {
+  onOpenAdd,
+  onOpenEdit,
+}: RecurringProps) {
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const highlightedRef = useRef<HTMLDivElement | null>(null);
-
-  // form state
-  const [type, setType] = useState<TransactionType>(TransactionType.Outflow);
-  const [amount, setAmount] = useState("");
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [accountId, setAccountId] = useState<string | null>(null);
-  const [merchant, setMerchant] = useState("");
-  const [notes, setNotes] = useState("");
-  const [tag, setTag] = useState<TagType>(TagType.Need);
-  const [frequency, setFrequency] = useState<RecurringFrequency>(RecurringFrequency.Monthly);
-  const [startDate, setStartDate] = useState(getTodayString());
-  const [nextDueDate, setNextDueDate] = useState(getTodayString());
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [notifyDaysBefore, setNotifyDaysBefore] = useState(1);
-  const [notifyTime, setNotifyTime] = useState("09:00");
-  const [repeatUntilDue, setRepeatUntilDue] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [rec, cats, accs] = await Promise.all([
+    const [rec, cats] = await Promise.all([
       fetchRecurringTransactions(),
       fetchCategories(),
-      fetchAccounts(),
     ]);
     setRecurring(rec);
     setCategories(cats);
-    setAccounts(accs.map(a => ({ id: a.id, name: a.name })));
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  const resetForm = () => {
-    setEditingId(null);
-    setType(TransactionType.Outflow); setAmount(""); setCategoryId(null); setAccountId(null);
-    setMerchant(""); setNotes(""); setTag(TagType.Need); setFrequency(RecurringFrequency.Monthly);
-    setStartDate(getTodayString()); setNextDueDate(getTodayString()); setNotificationsEnabled(false);
-    setNotifyDaysBefore(1); setNotifyTime("09:00"); setRepeatUntilDue(false);
-  };
-
-  const handleOpenAdd = () => {
-    resetForm();
-    setShowModal(true);
-  };
-
-  const handleOpenEdit = (r: RecurringTransaction) => {
-    setEditingId(r.id);
-    setType(r.type);
-    setAmount(r.amount ? formatInputAmount(String(r.amount), settings.currency) : "");
-    setCategoryId(r.category_id);
-    setAccountId(r.account_id);
-    setMerchant(r.merchant || "");
-    setNotes(r.notes || "");
-    setTag(r.tag);
-    setFrequency(r.frequency);
-    setStartDate(r.start_date);
-    setNextDueDate(r.next_date || r.start_date);
-    setNotificationsEnabled(r.notifications_enabled);
-    setNotifyDaysBefore(r.notify_days_before ?? 1);
-    setNotifyTime(r.notify_time || "09:00");
-    setRepeatUntilDue(r.repeat_until_acknowledged ?? false);
-    setShowModal(true);
-  };
-
-  const handleToggleFormNotifications = async (val: boolean) => {
-    if (val) {
-      const perm = await checkNotificationPermissions();
-      if (perm !== "granted") {
-        const requested = await requestNotificationPermissions();
-        if (requested === "denied") {
-          alert("Notification permissions are blocked in your browser. Please allow notifications in site settings to receive reminders.");
-          setNotificationsEnabled(false);
-          return;
-        }
-      }
-      const curSettings = await loadSettings();
-      if (!curSettings.notificationsEnabled) {
-        await saveSettings({ ...curSettings, notificationsEnabled: true });
-      }
-    }
-    setNotificationsEnabled(val);
-  };
-
-  const handleSave = async () => {
-    const amt = parseInputAmount(amount);
-    if (!amt || !categoryId) return;
-
-    if (notificationsEnabled) {
-      const perm = await checkNotificationPermissions();
-      if (perm !== "granted") {
-        const req = await requestNotificationPermissions();
-        if (req === "granted") {
-          const curSettings = await loadSettings();
-          if (!curSettings.notificationsEnabled) {
-            await saveSettings({ ...curSettings, notificationsEnabled: true });
-          }
-        }
-      } else {
-        const curSettings = await loadSettings();
-        if (!curSettings.notificationsEnabled) {
-          await saveSettings({ ...curSettings, notificationsEnabled: true });
-        }
-      }
-    }
-
-    const cat = categories.find(c => c.id === categoryId);
-
-    if (editingId) {
-      await updateRecurringTransaction(editingId, {
-        type,
-        amount: amt,
-        category_id: categoryId,
-        account_id: accountId,
-        merchant: merchant || null,
-        notes: notes || null,
-        tag,
-        frequency,
-        start_date: startDate,
-        next_date: nextDueDate || startDate,
-        notifications_enabled: notificationsEnabled,
-        notify_days_before: notifyDaysBefore,
-        notify_time: notifyTime,
-        repeat_until_acknowledged: repeatUntilDue,
-      });
-
-      const updated = await db.recurring_transactions.get(editingId);
-      if (updated) {
-        if (updated.notifications_enabled && updated.is_active) {
-          await scheduleRecurringReminder(updated, cat?.name);
-        } else {
-          await cancelRecurringReminder(editingId);
-        }
-      }
-    } else {
-      // The first due date of a newly created recurring transaction is its startDate!
-      const firstDueDate = startDate;
-      const created = await createRecurringTransaction({
-        type, amount: amt, category_id: categoryId, account_id: accountId,
-        merchant: merchant || null, notes: notes || null, tag,
-        frequency, start_date: startDate, next_date: firstDueDate,
-        notifications_enabled: notificationsEnabled,
-        notify_days_before: notifyDaysBefore,
-        notify_time: notifyTime,
-        repeat_until_acknowledged: repeatUntilDue,
-        is_active: true,
-      });
-
-      if (created.notifications_enabled) {
-        await scheduleRecurringReminder(created, cat?.name);
-      }
-    }
-
-    setShowModal(false);
-    resetForm();
-    load();
-  };
 
   const handleToggleNotifications = async (r: RecurringTransaction, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -330,8 +187,6 @@ export function Recurring({
     }
   }, [targetRecurringId, recurring]);
 
-  const filteredCategories = categories.filter(c => c.type === type);
-
   return (
     <div className="px-4 pt-6 pb-24">
       <div className="flex items-center justify-between mb-5">
@@ -340,7 +195,7 @@ export function Recurring({
           <p className="text-sm text-gray-500 mt-0.5">Automated transactions & bills</p>
         </div>
         <button
-          onClick={handleOpenAdd}
+          onClick={onOpenAdd}
           className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center active:scale-90 transition-transform"
           aria-label="Add Recurring"
         >
@@ -360,7 +215,7 @@ export function Recurring({
           <p className="text-sm text-gray-500 mb-1">No recurring transactions</p>
           <p className="text-xs text-gray-400 mb-4">Set up salary, rent, subscriptions, bills, etc.</p>
           <button
-            onClick={handleOpenAdd}
+            onClick={onOpenAdd}
             className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-xl"
           >
             Add Recurring
@@ -414,7 +269,7 @@ export function Recurring({
                     <div
                       key={r.id}
                       ref={isTarget ? highlightedRef : undefined}
-                      onClick={() => handleOpenEdit(r)}
+                      onClick={() => onOpenEdit(r.id)}
                       className={`bg-white rounded-2xl p-4 border transition-all cursor-pointer shadow-sm ${
                         isTarget
                           ? "border-amber-500 ring-2 ring-amber-500/30 shadow-md"
@@ -509,7 +364,7 @@ export function Recurring({
                     <div
                       key={r.id}
                       ref={isTarget ? highlightedRef : undefined}
-                      onClick={() => handleOpenEdit(r)}
+                      onClick={() => onOpenEdit(r.id)}
                       className={`bg-white rounded-2xl p-4 border transition-all cursor-pointer shadow-sm ${
                         isTarget
                           ? "border-blue-500 ring-2 ring-blue-500/30 shadow-md"
@@ -568,173 +423,6 @@ export function Recurring({
           </div>
         </div>
       )}
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-t-3xl w-full max-w-md p-5 pb-8 max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900">{editingId ? "Edit Recurring" : "New Recurring"}</h2>
-              <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
-                <X size={16} className="text-gray-600" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <button onClick={() => { setType(TransactionType.Outflow); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === TransactionType.Outflow ? "bg-red-500 text-white" : "bg-gray-50 text-gray-600"}`}>Expense</button>
-                <button onClick={() => { setType(TransactionType.Inflow); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === TransactionType.Inflow ? "bg-emerald-500 text-white" : "bg-gray-50 text-gray-600"}`}>Income</button>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Amount</label>
-                <div className="flex items-center gap-2 px-3.5 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                  <span className="text-lg font-bold text-gray-400">{settings.currencySymbol}</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={amount}
-                    onChange={e => setAmount(formatInputAmount(e.target.value, settings.currency))}
-                    placeholder="0"
-                    autoFocus
-                    className="text-lg font-bold text-gray-900 bg-transparent outline-none flex-1"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Payee / Description</label>
-                <input
-                  type="text"
-                  value={merchant}
-                  onChange={e => setMerchant(e.target.value)}
-                  placeholder="e.g. Netflix, Rent, Salary"
-                  className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Category</label>
-                <div className="flex flex-wrap gap-2">
-                  {filteredCategories.map(c => (
-                    <button key={c.id} onClick={() => { setCategoryId(c.id); setTag(c.tag); }} className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${categoryId === c.id ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600 hover:bg-gray-100"}`}>{c.name}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-2">Frequency</label>
-                  <select value={frequency} onChange={e => setFrequency(e.target.value as RecurringFrequency)} className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 capitalize font-medium">
-                    <option value={RecurringFrequency.Daily}>Daily</option>
-                    <option value={RecurringFrequency.Weekly}>Weekly</option>
-                    <option value={RecurringFrequency.Monthly}>Monthly</option>
-                    <option value={RecurringFrequency.Yearly}>Yearly</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-2">
-                    {editingId ? "Next Due Date" : "Start Date"}
-                  </label>
-                  <input
-                    type="date"
-                    value={editingId ? nextDueDate : startDate}
-                    onChange={e => {
-                      if (editingId) {
-                        setNextDueDate(e.target.value);
-                      } else {
-                        setStartDate(e.target.value);
-                        setNextDueDate(e.target.value);
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-2">Payment Account</label>
-                <select value={accountId || ""} onChange={e => setAccountId(e.target.value || null)} className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium">
-                  <option value="">Unspecified</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-
-              <div className="border-t border-gray-100 pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Bell size={16} className="text-gray-400" />
-                    <span className="text-sm font-medium text-gray-700">Notifications Reminder</span>
-                  </div>
-                  <Toggle checked={notificationsEnabled} onChange={handleToggleFormNotifications} />
-                </div>
-                {notificationsEnabled && (
-                  <div className="space-y-3 bg-gray-50/70 rounded-2xl p-3.5 border border-gray-100">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-gray-600 font-medium">Advance Notice</span>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min={0}
-                          max={30}
-                          value={notifyDaysBefore}
-                          onChange={e => setNotifyDaysBefore(parseInt(e.target.value) || 0)}
-                          className="w-14 px-2 py-1.5 bg-white rounded-lg text-sm outline-none border border-gray-200 text-center font-semibold"
-                        />
-                        <span className="text-xs text-gray-500">
-                          {notifyDaysBefore === 0 ? "days (Due date only)" : notifyDaysBefore === 1 ? "day before" : "days before"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-gray-600 font-medium">Reminder Time</span>
-                      <input
-                        type="time"
-                        value={notifyTime}
-                        onChange={e => setNotifyTime(e.target.value)}
-                        className="px-2.5 py-1.5 bg-white rounded-lg text-xs outline-none border border-gray-200 font-semibold"
-                      />
-                    </div>
-
-                    {notifyDaysBefore > 0 && (
-                      <div className="pt-2 border-t border-gray-200/60">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs font-medium text-gray-700">Daily Countdown</p>
-                            <p className="text-[10px] text-gray-400">
-                              {repeatUntilDue
-                                ? `Remind daily starting ${notifyDaysBefore}d before up to due date`
-                                : `Remind once on advance day and on due date`}
-                            </p>
-                          </div>
-                          <Toggle checked={repeatUntilDue} onChange={setRepeatUntilDue} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={handleSave}
-                disabled={!parseFloat(amount) || !categoryId}
-                className={`w-full py-3.5 rounded-2xl font-bold text-sm shadow-lg transition-all ${parseFloat(amount) && categoryId ? "bg-gray-900 text-white active:scale-95" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
-              >
-                {editingId ? "Update Recurring Item" : "Create Recurring Item"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
-  );
-}
-
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button onClick={() => onChange(!checked)} className={`w-10 h-6 rounded-full transition-colors relative ${checked ? "bg-gray-900" : "bg-gray-300"}`}>
-      <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"}`} />
-    </button>
   );
 }
