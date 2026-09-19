@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { X, ArrowDownLeft, ArrowUpRight, Check, Tag as TagIcon } from "lucide-react";
-import type { AppSettings, TransactionType, TagType, Category } from "@/types";
-import { TAGS, TAG_BG_COLORS } from "@/types";
+import type { AppSettings, Category } from "@/types";
+import { TransactionType, TagType, TAGS, TAG_BG_COLORS } from "@/types";
 import {
   fetchCategories, fetchAccounts, createTransaction, updateTransaction,
   fetchTransactions, findPayeeRule, createPayeeRule, fetchPayeeRules, type TransactionWithNames
@@ -16,14 +16,14 @@ interface AddTransactionProps {
 }
 
 export function AddTransaction({ settings, editId, onDone, onCancel }: AddTransactionProps) {
-  const [type, setType] = useState<TransactionType>("outflow");
+  const [type, setType] = useState<TransactionType>(TransactionType.Outflow);
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [date, setDate] = useState(getTodayString());
   const [accountId, setAccountId] = useState<string | null>(null);
   const [merchant, setMerchant] = useState("");
   const [notes, setNotes] = useState("");
-  const [tag, setTag] = useState<TagType>("Want");
+  const [tag, setTag] = useState<TagType>(TagType.Want);
   const [autoCategorize, setAutoCategorize] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
@@ -163,9 +163,9 @@ export function AddTransaction({ settings, editId, onDone, onCancel }: AddTransa
 
       <div className="flex gap-2 mb-5">
         <button
-          onClick={() => handleTypeChange("outflow")}
+          onClick={() => handleTypeChange(TransactionType.Outflow)}
           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all ${
-            type === "outflow"
+            type === TransactionType.Outflow
               ? "bg-red-500 text-white shadow-sm"
               : "bg-white text-gray-500 border border-gray-200"
           }`}
@@ -174,9 +174,9 @@ export function AddTransaction({ settings, editId, onDone, onCancel }: AddTransa
           Expense
         </button>
         <button
-          onClick={() => handleTypeChange("inflow")}
+          onClick={() => handleTypeChange(TransactionType.Inflow)}
           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all ${
-            type === "inflow"
+            type === TransactionType.Inflow
               ? "bg-emerald-500 text-white shadow-sm"
               : "bg-white text-gray-500 border border-gray-200"
           }`}

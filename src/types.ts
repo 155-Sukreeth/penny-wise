@@ -1,6 +1,21 @@
-export type TransactionType = "inflow" | "outflow";
-export type TagType = "Need" | "Want" | "Invest" | "Transfer";
-export type AIProvider = "gemini" | "groq" | "openai" | "anthropic";
+export enum TransactionType {
+  Inflow = "inflow",
+  Outflow = "outflow",
+}
+
+export enum TagType {
+  Need = "Need",
+  Want = "Want",
+  Invest = "Invest",
+  Transfer = "Transfer",
+}
+
+export enum AIProvider {
+  Gemini = "gemini",
+  Groq = "groq",
+  OpenAI = "openai",
+  Anthropic = "anthropic",
+}
 
 export interface Category {
   id: string;
@@ -14,10 +29,17 @@ export interface Category {
   created_at: string;
 }
 
+export enum AccountType {
+  Cash = "cash",
+  Bank = "bank",
+  CreditCard = "credit_card",
+  Other = "other",
+}
+
 export interface Account {
   id: string;
   name: string;
-  type: string;
+  type: AccountType | string;
   sort_order: number;
   is_default: boolean;
   created_at: string;
@@ -39,13 +61,30 @@ export interface Transaction {
   updated_at: string;
 }
 
+export enum BudgetType {
+  Overall = "overall",
+  Category = "category",
+}
+
+export enum BudgetPeriod {
+  Weekly = "weekly",
+  Monthly = "monthly",
+  Yearly = "yearly",
+}
+
 export interface Budget {
   id: string;
-  type: "overall" | "category";
+  type: BudgetType;
   category_id: string | null;
   amount: number;
-  period: "weekly" | "monthly" | "yearly";
+  period: BudgetPeriod;
   created_at: string;
+}
+
+export enum RecurringFrequency {
+  Weekly = "weekly",
+  Monthly = "monthly",
+  Yearly = "yearly",
 }
 
 export interface RecurringTransaction {
@@ -57,7 +96,7 @@ export interface RecurringTransaction {
   merchant: string | null;
   notes: string | null;
   tag: TagType;
-  frequency: "weekly" | "monthly" | "yearly";
+  frequency: RecurringFrequency;
   custom_days: number | null;
   start_date: string;
   end_date: string | null;
@@ -86,11 +125,16 @@ export interface AISettings {
   model?: string;
 }
 
+export enum AppTheme {
+  Light = "light",
+  Dark = "dark",
+}
+
 export interface AppSettings {
   currency: string;
   currencySymbol: string;
   dateFormat: string;
-  theme: "light" | "dark";
+  theme: AppTheme;
   startScreen: string;
   aiSettings: AISettings;
   notificationsEnabled: boolean;
@@ -102,10 +146,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   currency: "INR",
   currencySymbol: "₹",
   dateFormat: "DD/MM/YYYY",
-  theme: "light",
+  theme: AppTheme.Light,
   startScreen: "dashboard",
   aiSettings: {
-    provider: "gemini",
+    provider: AIProvider.Gemini,
     apiKey: "",
   },
   notificationsEnabled: false,
@@ -127,4 +171,38 @@ export const TAG_BG_COLORS: Record<TagType, string> = {
   Transfer: "bg-violet-100 text-violet-700 border-violet-200",
 };
 
-export const TAGS: TagType[] = ["Need", "Want", "Invest", "Transfer"];
+export const TAGS: TagType[] = [TagType.Need, TagType.Want, TagType.Invest, TagType.Transfer];
+
+export enum ImportSource {
+  CSV = "csv",
+  AI = "ai",
+}
+
+export enum ImportDraftMode {
+  Preview = "preview",
+  AIPreview = "ai-preview",
+}
+
+export interface StagedTransactionRow {
+  type: TransactionType;
+  amount: number;
+  category: string;
+  date: string;
+  merchant: string;
+  notes: string;
+  tag: TagType;
+  account: string;
+  isDuplicate?: boolean;
+  selected: boolean;
+}
+
+export interface ImportDraft {
+  id: string;
+  fileName: string;
+  source: ImportSource;
+  mode: ImportDraftMode;
+  rows: StagedTransactionRow[];
+  created_at: string;
+  updated_at: string;
+}
+

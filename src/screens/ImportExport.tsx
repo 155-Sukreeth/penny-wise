@@ -1,37 +1,32 @@
-import { useState, useRef } from "react";
-import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import type { AppSettings, Transaction, TransactionType, TagType } from "@/types";
-import { TAG_BG_COLORS } from "@/types";
+import { useState, useRef, useEffect } from "react";
+import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, ArrowDownLeft, ArrowUpRight, CheckSquare, Square, ChevronRight } from "lucide-react";
+import type { AppSettings, Transaction, ImportDraft, StagedTransactionRow } from "@/types";
+import { TransactionType, TagType, ImportSource, ImportDraftMode, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction, createCategory, createAccount, type TransactionWithNames } from "@/lib/data";
 import { db } from "@/lib/db";
 import { importTransactionsWithAI } from "@/lib/ai";
 import { formatCurrency, getTodayString } from "@/lib/format";
 import { saveSettings } from "@/lib/settings";
 import { exportFile } from "@/lib/exportUtils";
+import { saveImportDraft, getImportDraft, clearImportDraft, refreshDraftDuplicates } from "@/lib/importStaging";
 
 type ImportMode = "menu" | "normal" | "ai" | "preview" | "ai-preview";
-
-interface PreviewRow {
-  type: TransactionType;
-  amount: number;
-  category: string;
-  date: string;
-  merchant: string;
-  notes: string;
-  tag: TagType;
-  account: string;
-  isDuplicate?: boolean;
-  selected: boolean;
-}
 
 export function ImportExport({ settings }: { settings: AppSettings }) {
   const [mode, setMode] = useState<ImportMode>("menu");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
+  const [previewRows, setPreviewRows] = useState<StagedTransactionRow[]>([]);
   const [fileName, setFileName] = useState("");
+  const [activeDraft, setActiveDraft] = useState<ImportDraft | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getImportDraft().then(draft => {
+      setActiveDraft(draft);
+    });
+  }, [mode]);
 
   const parseCSV = (text: string): string[][] => {
     const cleanText = text.replace(/^\uFEFF/, "");
@@ -150,6 +145,20 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           };
         });
 
+        const draftPayload = {
+          fileName: file.name,
+          source: ImportSource.AI,
+          mode: ImportDraftMode.AIPreview,
+          rows: enriched,
+        };
+        await saveImportDraft(draftPayload);
+        setActiveDraft({
+          id: "active_staging_draft",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          ...draftPayload,
+        });
+
         setPreviewRows(enriched);
         setMode("ai-preview");
       } catch (e) {
@@ -203,7 +212,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         };
       }).filter(r => r.amount > 0);
 
-      const parsed: PreviewRow[] = rawRows.map(r => {
+      const parsed: StagedTransactionRow[] = rawRows.map(r => {
         const isDbDup = checkIsDuplicate(r, existing);
         const sig = `${r.date}_${r.type}_${r.amount}_${r.merchant.trim().toLowerCase()}_${r.category.trim().toLowerCase()}`;
         const isFileDup = seenFileSignatures.has(sig);
@@ -215,6 +224,20 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           isDuplicate,
           selected: !isDuplicate, // Duplicates default to UNSELECTED!
         };
+      });
+
+      const draftPayload = {
+        fileName: file.name,
+        source: ImportSource.CSV,
+        mode: ImportDraftMode.Preview,
+        rows: parsed,
+      };
+      await saveImportDraft(draftPayload);
+      setActiveDraft({
+        id: "active_staging_draft",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ...draftPayload,
       });
 
       setPreviewRows(parsed);
@@ -271,9 +294,12 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
       });
       importedCount++;
     }
+    await clearImportDraft();
+    setActiveDraft(null);
     setLoading(false);
     setMode("menu");
     setPreviewRows([]);
+    setFileName("");
     setError(null);
     setSuccessMsg(`Successfully imported ${importedCount} transaction${importedCount !== 1 ? "s" : ""}!`);
     setTimeout(() => setSuccessMsg(null), 3500);
@@ -409,14 +435,14 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         const acc = accs.find(a => a.name === tx.account_name) || accs.find(a => a.id === tx.account_id);
         const restoredTx: Transaction = {
           id: tx.id || crypto.randomUUID(),
-          type: tx.type || "outflow",
+          type: (tx.type as TransactionType) || TransactionType.Outflow,
           amount: Number(tx.amount) || 0,
           category_id: cat?.id || tx.category_id || null,
           date: tx.date || new Date().toISOString().slice(0, 10),
           account_id: acc?.id || tx.account_id || null,
           merchant: tx.merchant || null,
           notes: tx.notes || null,
-          tag: tx.tag || "Want",
+          tag: (tx.tag as TagType) || TagType.Want,
           tags: tx.tags || [],
           attachment_url: tx.attachment_url || null,
           created_at: tx.created_at || new Date().toISOString(),
@@ -435,20 +461,65 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
     }
   };
 
+  const updateRowsAndPersist = (updater: (prev: StagedTransactionRow[]) => StagedTransactionRow[]) => {
+    setPreviewRows(prev => {
+      const updated = updater(prev);
+      if (fileName && (mode === "preview" || mode === "ai-preview")) {
+        const currentSource: ImportSource = mode === "ai-preview" ? ImportSource.AI : ImportSource.CSV;
+        const currentMode: ImportDraftMode = mode === "ai-preview" ? ImportDraftMode.AIPreview : ImportDraftMode.Preview;
+        saveImportDraft({
+          fileName,
+          source: currentSource,
+          mode: currentMode,
+          rows: updated,
+        }).catch(err => console.error("Auto-save draft error:", err));
+      }
+      return updated;
+    });
+  };
+
   const toggleRow = (idx: number) => {
-    setPreviewRows(prev => prev.map((r, i) => (i === idx ? { ...r, selected: !r.selected } : r)));
+    updateRowsAndPersist(prev => prev.map((r, i) => (i === idx ? { ...r, selected: !r.selected } : r)));
   };
 
   const selectAll = () => {
-    setPreviewRows(prev => prev.map(r => ({ ...r, selected: true })));
+    updateRowsAndPersist(prev => prev.map(r => ({ ...r, selected: true })));
   };
 
   const deselectAll = () => {
-    setPreviewRows(prev => prev.map(r => ({ ...r, selected: false })));
+    updateRowsAndPersist(prev => prev.map(r => ({ ...r, selected: false })));
   };
 
   const skipDuplicates = () => {
-    setPreviewRows(prev => prev.map(r => ({ ...r, selected: !r.isDuplicate })));
+    updateRowsAndPersist(prev => prev.map(r => ({ ...r, selected: !r.isDuplicate })));
+  };
+
+  const handleResumeDraft = async () => {
+    if (!activeDraft) return;
+    setLoading(true);
+    try {
+      const existing = await fetchTransactions({ limit: 5000 });
+      const freshRows = refreshDraftDuplicates(activeDraft.rows, existing);
+      setPreviewRows(freshRows);
+      setFileName(activeDraft.fileName);
+      setMode(activeDraft.mode);
+    } catch (e) {
+      console.error("Failed to resume draft:", e);
+      setPreviewRows(activeDraft.rows);
+      setFileName(activeDraft.fileName);
+      setMode(activeDraft.mode);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDiscardDraft = async () => {
+    await clearImportDraft();
+    setActiveDraft(null);
+    setPreviewRows([]);
+    setFileName("");
+    setSuccessMsg("Staged import discarded.");
+    setTimeout(() => setSuccessMsg(null), 3000);
   };
 
   if (loading) {
@@ -483,6 +554,49 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           </div>
         )}
 
+        {activeDraft && (
+          <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-5 shadow-xs animate-in fade-in">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gray-900 text-white flex items-center justify-center flex-shrink-0">
+                  <Sparkles size={16} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-bold text-gray-900">Import in Progress</span>
+                    <span className="text-[10px] font-semibold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      {activeDraft.source}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 truncate max-w-[210px] mt-0.5">
+                    {activeDraft.fileName || "Uploaded Statement"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDiscardDraft}
+                className="text-xs font-medium text-gray-400 hover:text-red-500 py-1 px-2 rounded-lg transition"
+              >
+                Discard
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mb-3 pl-0.5">
+              <span className="font-semibold text-gray-900">{activeDraft.rows.filter(r => r.selected).length}</span> of {activeDraft.rows.length} transactions selected for review.
+            </p>
+
+            <button
+              type="button"
+              onClick={handleResumeDraft}
+              className="w-full py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-semibold shadow-xs active:scale-[0.98] transition flex items-center justify-center gap-1.5"
+            >
+              Resume Review
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+
         <div className="space-y-3">
           <SectionTitle>Export</SectionTitle>
           <ActionCard icon={<Download size={20} className="text-gray-600" />} title="Export as CSV" subtitle="Download all transactions" onClick={handleExportCSV} />
@@ -491,7 +605,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           <SectionTitle>Import</SectionTitle>
           <ActionCard icon={<Upload size={20} className="text-gray-600" />} title="Import CSV" subtitle="From this app's export format" onClick={() => { setMode("normal"); }} />
           <ActionCard
-            icon={<Sparkles size={20} className="text-blue-500" />}
+            icon={<Sparkles size={20} className="text-gray-700" />}
             title="Import with AI"
             subtitle="Bank statements, unstructured files"
             onClick={() => { setMode("ai"); }}
@@ -515,42 +629,42 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   if (mode === "normal" || mode === "ai") {
     const isAI = mode === "ai";
     return (
-      <div className="px-4 pt-6 pb-4 min-h-screen flex flex-col">
+      <div className="px-4 pt-6 pb-6 min-h-screen flex flex-col">
         <div className="flex items-center justify-between mb-5">
-          <button onClick={() => { setMode("menu"); setError(null); }} className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
-            <X size={18} className="text-gray-600" />
+          <button onClick={() => { setMode("menu"); setError(null); }} className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center active:scale-95 transition text-gray-600 hover:bg-gray-200">
+            <X size={18} />
           </button>
-          <h1 className="text-lg font-semibold text-gray-900 flex items-center gap-1.5">
-            {isAI && <Sparkles size={16} className="text-blue-500" />}
+          <h1 className="text-base font-semibold text-gray-900 flex items-center gap-1.5">
+            {isAI && <Sparkles size={16} className="text-gray-900" />}
             {isAI ? "Import with AI" : "Import CSV"}
           </h1>
           <div className="w-9" />
         </div>
 
         {isAI && (
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4">
-            <p className="text-xs text-blue-700">
-              Upload a bank statement (CSV, Excel, or text). AI will analyze and map it to transactions for your review.
+          <div className="bg-gray-100/80 border border-gray-200/80 rounded-2xl p-3.5 mb-4">
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Upload any bank statement (CSV, Excel, or text). AI will analyze and map your transactions into a review staging area.
             </p>
           </div>
         )}
 
         {error && (
-          <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4 flex items-start gap-2">
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-3.5 mb-4 flex items-start gap-2.5">
             <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-red-600">{error}</p>
+            <p className="text-xs text-red-600 leading-relaxed">{error}</p>
           </div>
         )}
 
-        <div className="flex-1 flex flex-col items-center justify-center">
+        <div className="flex-1 flex flex-col items-center justify-center py-8">
           <div
             onClick={() => importFileRef.current?.click()}
-            className="w-full border-2 border-dashed border-gray-200 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer hover:border-gray-300 transition-colors"
+            className="w-full border-2 border-dashed border-gray-200 hover:border-gray-400 bg-white rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors shadow-2xs"
           >
             <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
-              <Upload size={24} className="text-gray-400" />
+              <Upload size={24} className="text-gray-500" />
             </div>
-            <p className="text-sm font-medium text-gray-700">Tap to select a file</p>
+            <p className="text-sm font-semibold text-gray-800">Tap to select a file</p>
             <p className="text-xs text-gray-400 mt-1">{isAI ? "CSV, TXT, or any text file" : "CSV from this app's export"}</p>
           </div>
           <input
@@ -574,33 +688,39 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   const selectedCount = previewRows.filter(r => r.selected).length;
 
   return (
-    <div className="px-4 pt-6 pb-4 min-h-screen flex flex-col">
+    <div className="px-4 pt-6 pb-6 min-h-screen flex flex-col">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={() => { setMode("menu"); setError(null); setPreviewRows([]); }} className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
-          <X size={18} className="text-gray-600" />
+        <button
+          onClick={() => { setMode("menu"); setError(null); }}
+          className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center active:scale-95 transition text-gray-600 hover:bg-gray-200"
+        >
+          <X size={18} />
         </button>
-        <h1 className="text-lg font-semibold text-gray-900">Review Import</h1>
+        <div className="text-center">
+          <h1 className="text-base font-semibold text-gray-900">Review Import</h1>
+          {fileName && <p className="text-[11px] text-gray-400 max-w-[210px] truncate">{fileName}</p>}
+        </div>
         <div className="w-9" />
       </div>
 
-      {fileName && <p className="text-xs text-gray-400 mb-3 truncate">{fileName}</p>}
-
       {duplicates > 0 && (
-        <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 mb-3 flex items-start gap-2">
-          <AlertCircle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-700">{duplicates} potential duplicate(s) detected. Review before importing.</p>
+        <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-3.5 mb-3 flex items-start gap-2.5">
+          <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800 leading-relaxed">
+            {duplicates} potential duplicate{duplicates !== 1 ? "s" : ""} detected. They have been unselected by default.
+          </p>
         </div>
       )}
 
       <div className="flex flex-col gap-2 mb-3">
-        <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex items-center justify-between text-xs text-gray-500 px-1">
           <div>
             <span>{previewRows.length} found</span>
             <span> · </span>
-            <span className="font-semibold text-gray-800">{selectedCount} selected</span>
+            <span className="font-semibold text-gray-900">{selectedCount} selected</span>
           </div>
           {duplicates > 0 && (
-            <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+            <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-full">
               {duplicates} duplicate{duplicates !== 1 ? "s" : ""}
             </span>
           )}
@@ -610,14 +730,14 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           <button
             type="button"
             onClick={selectAll}
-            className="text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-1 hover:bg-gray-50 active:scale-95 transition"
+            className="text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-xl px-3 py-1.5 hover:bg-gray-50 active:scale-95 transition shadow-2xs"
           >
             Select All
           </button>
           <button
             type="button"
             onClick={deselectAll}
-            className="text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-1 hover:bg-gray-50 active:scale-95 transition"
+            className="text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-xl px-3 py-1.5 hover:bg-gray-50 active:scale-95 transition shadow-2xs"
           >
             Deselect All
           </button>
@@ -625,7 +745,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
             <button
               type="button"
               onClick={skipDuplicates}
-              className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 hover:bg-amber-100 active:scale-95 transition"
+              className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200/80 rounded-xl px-3 py-1.5 hover:bg-amber-100 active:scale-95 transition shadow-2xs flex items-center gap-1"
             >
               Skip Duplicates ({duplicates})
             </button>
@@ -633,64 +753,81 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         </div>
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden divide-y divide-gray-50 shadow-2xs mb-4">
         {previewRows.map((r, idx) => (
           <div
             key={idx}
             onClick={() => toggleRow(idx)}
-            className={`rounded-xl p-3 border transition-all cursor-pointer active:scale-[0.99] select-none ${
-              r.isDuplicate
-                ? r.selected
-                  ? "bg-amber-50/40 border-amber-300"
-                  : "bg-gray-50/80 border-amber-200/60 opacity-60"
-                : r.selected
-                ? "bg-white border-gray-200 shadow-sm"
-                : "bg-gray-50/80 border-gray-200/60 opacity-50"
+            className={`flex items-center gap-3 p-3.5 cursor-pointer select-none transition-colors active:scale-[0.99] ${
+              r.selected
+                ? r.isDuplicate
+                  ? "bg-amber-50/30 hover:bg-amber-50/50"
+                  : "bg-white hover:bg-gray-50/60"
+                : "bg-gray-50/70 opacity-55 hover:bg-gray-50"
             }`}
           >
-            <div className="flex items-start gap-3">
-              {/* Distinct Checkbox container */}
-              <div
-                className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
-                  r.selected
-                    ? "bg-gray-900 text-white"
-                    : "border-2 border-gray-300 bg-white"
-                }`}
-                aria-label={r.selected ? "Deselect row" : "Select row"}
-              >
-                {r.selected && <Check size={13} strokeWidth={3} />}
-              </div>
+            <div className="flex-shrink-0 text-gray-400">
+              {r.selected ? (
+                <CheckSquare size={19} className="text-gray-900" />
+              ) : (
+                <Square size={19} className="text-gray-300" />
+              )}
+            </div>
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${r.type === "inflow" ? "bg-emerald-50" : "bg-red-50"}`}>
-                    {r.type === "inflow" ? <ArrowUpRight size={12} className="text-emerald-600" /> : <ArrowDownLeft size={12} className="text-red-500" />}
-                  </div>
-                  <span className="text-sm font-medium text-gray-900 truncate">{r.merchant || r.category}</span>
-                  {r.isDuplicate && (
-                    <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 border border-amber-200">
-                      Duplicate
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-400">
-                  <span>{r.date}</span>
-                  <span>·</span>
-                  <span>{r.category}</span>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded border ${TAG_BG_COLORS[r.tag]}`}>{r.tag}</span>
-                </div>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              r.type === TransactionType.Inflow ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-500"
+            }`}>
+              {r.type === TransactionType.Inflow ? <ArrowUpRight size={16} /> : <ArrowDownLeft size={16} />}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-sm font-semibold text-gray-900 truncate">
+                  {r.merchant || r.category}
+                </span>
+                {r.isDuplicate && (
+                  <span className="text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/80 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                    Duplicate
+                  </span>
+                )}
               </div>
-              <span className="text-sm font-semibold text-gray-900 flex-shrink-0">{formatCurrency(r.amount, settings)}</span>
+              <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                <span>{r.date}</span>
+                <span>·</span>
+                <span>{r.category}</span>
+                {r.account && (
+                  <>
+                    <span>·</span>
+                    <span>{r.account}</span>
+                  </>
+                )}
+                <span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${TAG_BG_COLORS[r.tag]}`}>
+                  {r.tag}
+                </span>
+              </div>
+            </div>
+
+            <div className="text-right flex-shrink-0">
+              <span className={`text-sm font-bold ${
+                r.type === TransactionType.Inflow ? "text-emerald-600" : "text-gray-900"
+              }`}>
+                {r.type === TransactionType.Inflow ? "+" : "-"}
+                {formatCurrency(r.amount, settings)}
+              </span>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="pt-4">
+      <div className="sticky bottom-0 bg-gradient-to-t from-gray-50 via-gray-50 to-transparent pt-3 pb-4 mt-auto">
         <button
           onClick={handleConfirmImport}
           disabled={selectedCount === 0}
-          className={`w-full py-3.5 rounded-xl font-semibold text-sm ${selectedCount > 0 ? "bg-gray-900 text-white" : "bg-gray-200 text-gray-400"}`}
+          className={`w-full py-3.5 rounded-2xl font-bold text-sm shadow-md active:scale-98 transition-all ${
+            selectedCount > 0
+              ? "bg-gray-900 text-white hover:bg-black"
+              : "bg-gray-200 text-gray-400 cursor-not-allowed"
+          }`}
         >
           Import {selectedCount} Transaction{selectedCount !== 1 ? "s" : ""}
         </button>
@@ -700,22 +837,30 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-4 mb-2 px-1">{children}</h2>;
+  return <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-5 mb-2 px-1">{children}</h2>;
 }
 
 function ActionCard({ icon, title, subtitle, onClick, highlight }: { icon: React.ReactNode; title: string; subtitle: string; onClick: () => void; highlight?: boolean }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 p-4 rounded-2xl border text-left active:scale-[0.98] transition-transform ${highlight ? "border-blue-200 bg-blue-50" : "border-gray-100 bg-white"}`}
+      className="w-full flex items-center gap-3.5 p-4 rounded-2xl border border-gray-100 bg-white text-left active:scale-[0.98] transition-all hover:border-gray-200 shadow-2xs"
     >
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${highlight ? "bg-blue-100" : "bg-gray-100"}`}>
+      <div className="w-10 h-10 rounded-xl bg-gray-100 text-gray-700 flex items-center justify-center flex-shrink-0">
         {icon}
       </div>
       <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          {highlight && (
+            <span className="text-[10px] font-semibold bg-gray-900 text-white px-2 py-0.5 rounded-full">
+              AI Powered
+            </span>
+          )}
+        </div>
         <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
       </div>
+      <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
     </button>
   );
 }

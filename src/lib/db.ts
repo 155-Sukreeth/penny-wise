@@ -1,14 +1,17 @@
 import Dexie, { type Table } from "dexie";
-import type {
-  Category,
-  Account,
-  Transaction,
-  Budget,
-  RecurringTransaction,
-  PayeeRule,
-  AppSettings,
+import {
+  type Category,
+  type Account,
+  type Transaction,
+  type Budget,
+  type RecurringTransaction,
+  type PayeeRule,
+  type AppSettings,
+  type ImportDraft,
+  TransactionType,
+  TagType,
+  DEFAULT_SETTINGS,
 } from "@/types";
-import { DEFAULT_SETTINGS } from "@/types";
 
 export interface DBSetting {
   key: string;
@@ -24,6 +27,7 @@ export class PennyWiseDatabase extends Dexie {
   recurring_transactions!: Table<RecurringTransaction, string>;
   payee_rules!: Table<PayeeRule, string>;
   app_settings!: Table<DBSetting, string>;
+  import_drafts!: Table<ImportDraft, string>;
 
   constructor() {
     super("PennyWiseDB");
@@ -38,34 +42,38 @@ export class PennyWiseDatabase extends Dexie {
       app_settings: "key",
     });
 
+    this.version(2).stores({
+      import_drafts: "id, updated_at",
+    });
+
     this.on("populate", () => this.seedInitialData());
   }
 
   async seedInitialData() {
     const defaultInflowCategories: Category[] = [
-      { id: crypto.randomUUID(), name: "Salary", type: "inflow", tag: "Invest", sort_order: 1, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Freelance", type: "inflow", tag: "Invest", sort_order: 2, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Interest", type: "inflow", tag: "Invest", sort_order: 3, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Cashback", type: "inflow", tag: "Want", sort_order: 4, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Refund", type: "inflow", tag: "Transfer", sort_order: 5, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Gift", type: "inflow", tag: "Want", sort_order: 6, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Other income", type: "inflow", tag: "Want", sort_order: 7, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Salary", type: TransactionType.Inflow, tag: TagType.Invest, sort_order: 1, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Freelance", type: TransactionType.Inflow, tag: TagType.Invest, sort_order: 2, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Interest", type: TransactionType.Inflow, tag: TagType.Invest, sort_order: 3, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Cashback", type: TransactionType.Inflow, tag: TagType.Want, sort_order: 4, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Refund", type: TransactionType.Inflow, tag: TagType.Transfer, sort_order: 5, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Gift", type: TransactionType.Inflow, tag: TagType.Want, sort_order: 6, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Other income", type: TransactionType.Inflow, tag: TagType.Want, sort_order: 7, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
     ];
 
     const defaultOutflowCategories: Category[] = [
-      { id: crypto.randomUUID(), name: "Food", type: "outflow", tag: "Need", sort_order: 1, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Groceries", type: "outflow", tag: "Need", sort_order: 2, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Transport", type: "outflow", tag: "Need", sort_order: 3, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Shopping", type: "outflow", tag: "Want", sort_order: 4, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Bills & utilities", type: "outflow", tag: "Need", sort_order: 5, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Rent", type: "outflow", tag: "Need", sort_order: 6, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Entertainment", type: "outflow", tag: "Want", sort_order: 7, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Healthcare", type: "outflow", tag: "Need", sort_order: 8, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Travel", type: "outflow", tag: "Want", sort_order: 9, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Subscriptions", type: "outflow", tag: "Want", sort_order: 10, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Education", type: "outflow", tag: "Invest", sort_order: 11, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Personal care", type: "outflow", tag: "Want", sort_order: 12, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: "Miscellaneous", type: "outflow", tag: "Want", sort_order: 13, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Food", type: TransactionType.Outflow, tag: TagType.Need, sort_order: 1, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Groceries", type: TransactionType.Outflow, tag: TagType.Need, sort_order: 2, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Transport", type: TransactionType.Outflow, tag: TagType.Need, sort_order: 3, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Shopping", type: TransactionType.Outflow, tag: TagType.Want, sort_order: 4, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Bills & utilities", type: TransactionType.Outflow, tag: TagType.Need, sort_order: 5, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Rent", type: TransactionType.Outflow, tag: TagType.Need, sort_order: 6, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Entertainment", type: TransactionType.Outflow, tag: TagType.Want, sort_order: 7, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Healthcare", type: TransactionType.Outflow, tag: TagType.Need, sort_order: 8, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Travel", type: TransactionType.Outflow, tag: TagType.Want, sort_order: 9, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Subscriptions", type: TransactionType.Outflow, tag: TagType.Want, sort_order: 10, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Education", type: TransactionType.Outflow, tag: TagType.Invest, sort_order: 11, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Personal care", type: TransactionType.Outflow, tag: TagType.Want, sort_order: 12, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: "Miscellaneous", type: TransactionType.Outflow, tag: TagType.Want, sort_order: 13, is_default: true, icon: null, color: null, created_at: new Date().toISOString() },
     ];
 
     const defaultAccounts: Account[] = [
