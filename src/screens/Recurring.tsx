@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, X, Trash2, Repeat, Bell, BellOff, Calendar, Check, ArrowDownLeft, ArrowUpRight, Edit2 } from "lucide-react";
-import type { AppSettings, TransactionType, TagType, Category, RecurringTransaction } from "@/types";
-import { TAGS, TAG_BG_COLORS } from "@/types";
+import type { AppSettings, Category, RecurringTransaction } from "@/types";
+import { TransactionType, TagType, RecurringFrequency, TAGS, TAG_BG_COLORS } from "@/types";
 import {
   fetchRecurringTransactions, createRecurringTransaction, updateRecurringTransaction,
   deleteRecurringTransaction, fetchCategories, fetchAccounts, createTransaction
@@ -17,14 +17,14 @@ export function Recurring({ settings }: { settings: AppSettings }) {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // form state
-  const [type, setType] = useState<TransactionType>("outflow");
+  const [type, setType] = useState<TransactionType>(TransactionType.Outflow);
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [merchant, setMerchant] = useState("");
   const [notes, setNotes] = useState("");
-  const [tag, setTag] = useState<TagType>("Need");
-  const [frequency, setFrequency] = useState<"weekly" | "monthly" | "yearly">("monthly");
+  const [tag, setTag] = useState<TagType>(TagType.Need);
+  const [frequency, setFrequency] = useState<RecurringFrequency>(RecurringFrequency.Monthly);
   const [startDate, setStartDate] = useState(getTodayString());
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notifyDaysBefore, setNotifyDaysBefore] = useState(1);
@@ -47,8 +47,8 @@ export function Recurring({ settings }: { settings: AppSettings }) {
 
   const resetForm = () => {
     setEditingId(null);
-    setType("outflow"); setAmount(""); setCategoryId(null); setAccountId(null);
-    setMerchant(""); setNotes(""); setTag("Need"); setFrequency("monthly");
+    setType(TransactionType.Outflow); setAmount(""); setCategoryId(null); setAccountId(null);
+    setMerchant(""); setNotes(""); setTag(TagType.Need); setFrequency(RecurringFrequency.Monthly);
     setStartDate(getTodayString()); setNotificationsEnabled(false);
     setNotifyDaysBefore(1); setNotifyTime("09:00");
   };
@@ -251,11 +251,10 @@ export function Recurring({ settings }: { settings: AppSettings }) {
                 <X size={16} className="text-gray-600" />
               </button>
             </div>
-
-            <div className="space-y-4">
+            <div className="space-y-4">
               <div className="flex gap-2">
-                <button onClick={() => { setType("outflow"); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === "outflow" ? "bg-red-500 text-white" : "bg-gray-50 text-gray-600"}`}>Expense</button>
-                <button onClick={() => { setType("inflow"); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === "inflow" ? "bg-emerald-500 text-white" : "bg-gray-50 text-gray-600"}`}>Income</button>
+                <button onClick={() => { setType(TransactionType.Outflow); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === TransactionType.Outflow ? "bg-red-500 text-white" : "bg-gray-50 text-gray-600"}`}>Expense</button>
+                <button onClick={() => { setType(TransactionType.Inflow); setCategoryId(null); }} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${type === TransactionType.Inflow ? "bg-emerald-500 text-white" : "bg-gray-50 text-gray-600"}`}>Income</button>
               </div>
 
               <div>
@@ -297,12 +296,13 @@ export function Recurring({ settings }: { settings: AppSettings }) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 font-medium block mb-2">Frequency</label>
-                  <select value={frequency} onChange={e => setFrequency(e.target.value as "weekly" | "monthly" | "yearly")} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 capitalize font-medium">
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="yearly">Yearly</option>
+                  <select value={frequency} onChange={e => setFrequency(e.target.value as RecurringFrequency)} className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 capitalize font-medium">
+                    <option value={RecurringFrequency.Weekly}>Weekly</option>
+                    <option value={RecurringFrequency.Monthly}>Monthly</option>
+                    <option value={RecurringFrequency.Yearly}>Yearly</option>
                   </select>
                 </div>
+
                 <div>
                   <label className="text-xs text-gray-500 font-medium block mb-2">Start Date</label>
                   <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium" />

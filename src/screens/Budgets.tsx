@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, X, Trash2, AlertTriangle, Check, PiggyBank } from "lucide-react";
 import type { AppSettings, Category, Budget } from "@/types";
+import { BudgetType, BudgetPeriod } from "@/types";
 import { fetchBudgets, createBudget, updateBudget, deleteBudget, fetchCategories, fetchTransactions } from "@/lib/data";
 import { formatCurrency, getMonthBounds, formatInputAmount, parseInputAmount } from "@/lib/format";
 
@@ -16,7 +17,7 @@ export function Budgets({ settings }: { settings: AppSettings }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [addType, setAddType] = useState<"overall" | "category">("overall");
+  const [addType, setAddType] = useState<BudgetType>(BudgetType.Overall);
   const [addAmount, setAddAmount] = useState("");
   const [addCategoryId, setAddCategoryId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -53,12 +54,12 @@ export function Budgets({ settings }: { settings: AppSettings }) {
   const handleAdd = async () => {
     const amt = parseInputAmount(addAmount);
     if (!amt || amt <= 0) return;
-    if (addType === "category" && !addCategoryId) return;
+    if (addType === BudgetType.Category && !addCategoryId) return;
     await createBudget({
       type: addType,
-      category_id: addType === "category" ? addCategoryId : null,
+      category_id: addType === BudgetType.Category ? addCategoryId : null,
       amount: amt,
-      period: "monthly",
+      period: BudgetPeriod.Monthly,
     });
     setShowAdd(false);
     setAddAmount("");
@@ -232,21 +233,21 @@ export function Budgets({ settings }: { settings: AppSettings }) {
                 <label className="text-xs text-gray-500 font-medium block mb-2">Budget Scope</label>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { setAddType("overall"); setAddCategoryId(null); }}
-                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${addType === "overall" ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}
+                    onClick={() => { setAddType(BudgetType.Overall); setAddCategoryId(null); }}
+                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${addType === BudgetType.Overall ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}
                   >
                     Overall
                   </button>
                   <button
-                    onClick={() => setAddType("category")}
-                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${addType === "category" ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}
+                    onClick={() => setAddType(BudgetType.Category)}
+                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${addType === BudgetType.Category ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}
                   >
                     Category
                   </button>
                 </div>
               </div>
 
-              {addType === "category" && (
+              {addType === BudgetType.Category && (
                 <div>
                   <label className="text-xs text-gray-500 font-medium block mb-2">Category</label>
                   <select

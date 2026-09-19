@@ -3,8 +3,8 @@ import {
   Settings as SettingsIcon, ChevronRight, Tag, CreditCard, Bell, Lock, Database,
   Sparkles, Plus, X, Trash2, Check, GripVertical, ArrowUp, ArrowDown, Globe, Palette
 } from "lucide-react";
-import type { AppSettings, AIProvider, Category, TransactionType, TagType } from "@/types";
-import { TAGS, TAG_BG_COLORS } from "@/types";
+import type { AppSettings, Category } from "@/types";
+import { AIProvider, TransactionType, TagType, AppTheme, TAGS, TAG_BG_COLORS } from "@/types";
 import { saveSettings, clearSettingsCache } from "@/lib/settings";
 import {
   fetchCategories, createCategory, updateCategory, deleteCategory, reorderCategories,
@@ -149,10 +149,10 @@ function GeneralSettings({ settings, onUpdate }: { settings: AppSettings; onUpda
       <div className="bg-white rounded-2xl p-4 border border-gray-100">
         <label className="text-xs text-gray-500 font-medium block mb-2 flex items-center gap-1.5"><Palette size={13} /> Theme</label>
         <div className="flex gap-2">
-          {["light", "dark"].map(t => (
+          {[AppTheme.Light, AppTheme.Dark].map(t => (
             <button
               key={t}
-              onClick={() => onUpdate({ theme: t as "light" | "dark" })}
+              onClick={() => onUpdate({ theme: t })}
               className={`px-4 py-2 rounded-lg text-sm font-medium capitalize ${settings.theme === t ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600"}`}
             >
               {t}
@@ -167,9 +167,9 @@ function GeneralSettings({ settings, onUpdate }: { settings: AppSettings; onUpda
 function CategoriesSettings() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [activeType, setActiveType] = useState<TransactionType>("outflow");
+  const [activeType, setActiveType] = useState<TransactionType>(TransactionType.Outflow);
   const [newName, setNewName] = useState("");
-  const [newTag, setNewTag] = useState<TagType>("Want");
+  const [newTag, setNewTag] = useState<TagType>(TagType.Want);
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
@@ -220,8 +220,8 @@ function CategoriesSettings() {
   return (
     <div className="space-y-4">
       <div className="flex gap-2">
-        <button onClick={() => setActiveType("outflow")} className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${activeType === "outflow" ? "bg-red-500 text-white" : "bg-white text-gray-600 border border-gray-100"}`}>Outflow</button>
-        <button onClick={() => setActiveType("inflow")} className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${activeType === "inflow" ? "bg-emerald-500 text-white" : "bg-white text-gray-600 border border-gray-100"}`}>Inflow</button>
+        <button onClick={() => setActiveType(TransactionType.Outflow)} className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${activeType === TransactionType.Outflow ? "bg-red-500 text-white" : "bg-white text-gray-600 border border-gray-100"}`}>Outflow</button>
+        <button onClick={() => setActiveType(TransactionType.Inflow)} className={`flex-1 py-2.5 rounded-lg text-sm font-medium ${activeType === TransactionType.Inflow ? "bg-emerald-500 text-white" : "bg-white text-gray-600 border border-gray-100"}`}>Inflow</button>
       </div>
 
       <div className="space-y-2">

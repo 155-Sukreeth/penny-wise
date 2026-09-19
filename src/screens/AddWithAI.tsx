@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X, Sparkles, Check, AlertCircle, Loader, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import type { AppSettings, TransactionType, TagType, Category } from "@/types";
-import { TAGS, TAG_BG_COLORS } from "@/types";
+import type { AppSettings, Category } from "@/types";
+import { TransactionType, TagType, TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchCategories, fetchAccounts, createTransaction, createPayeeRule, findPayeeRule } from "@/lib/data";
 import { getTodayString, formatDate, formatInputAmount, parseInputAmount } from "@/lib/format";
 import { parseTransactionWithAI, type ParsedTransaction as AIParsedTransaction } from "@/lib/ai";
@@ -21,7 +21,7 @@ export function AddWithAI({ settings, onDone, onCancel }: AddWithAIProps) {
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [tag, setTag] = useState<TagType>("Want");
+  const [tag, setTag] = useState<TagType>(TagType.Want);
   const [saving, setSaving] = useState(false);
 
   const initCategories = async () => {
@@ -200,14 +200,14 @@ export function AddWithAI({ settings, onDone, onCancel }: AddWithAIProps) {
               <label className="text-xs text-gray-500 font-medium block mb-2">Transaction Type</label>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { parsed.type = "outflow"; setParsed({ ...parsed }); }}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium ${parsed.type === "outflow" ? "bg-red-500 text-white" : "bg-gray-50 text-gray-600"}`}
+                  onClick={() => { parsed.type = TransactionType.Outflow; setParsed({ ...parsed }); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium ${parsed.type === TransactionType.Outflow ? "bg-red-500 text-white" : "bg-gray-50 text-gray-600"}`}
                 >
                   <ArrowDownLeft size={16} /> Outflow
                 </button>
                 <button
-                  onClick={() => { parsed.type = "inflow"; setParsed({ ...parsed }); }}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium ${parsed.type === "inflow" ? "bg-emerald-500 text-white" : "bg-gray-50 text-gray-600"}`}
+                  onClick={() => { parsed.type = TransactionType.Inflow; setParsed({ ...parsed }); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium ${parsed.type === TransactionType.Inflow ? "bg-emerald-500 text-white" : "bg-gray-50 text-gray-600"}`}
                 >
                   <ArrowUpRight size={16} /> Inflow
                 </button>

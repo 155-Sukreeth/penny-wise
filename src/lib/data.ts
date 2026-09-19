@@ -1,13 +1,16 @@
 import { db, ensureInitialized } from "./db";
-import type {
-  Category,
-  Account,
-  Transaction,
-  Budget,
-  RecurringTransaction,
-  PayeeRule,
+import {
+  type Category,
+  type Account,
+  type Transaction,
+  type Budget,
+  type RecurringTransaction,
+  type PayeeRule,
   TagType,
   TransactionType,
+  BudgetType,
+  BudgetPeriod,
+  RecurringFrequency,
 } from "@/types";
 
 export interface TransactionWithNames extends Transaction {
@@ -27,8 +30,8 @@ export async function createCategory(cat: Partial<Category>): Promise<Category> 
   const newCat: Category = {
     id: cat.id || crypto.randomUUID(),
     name: cat.name || "",
-    type: cat.type || "outflow",
-    tag: cat.tag || "Want",
+    type: cat.type || TransactionType.Outflow,
+    tag: cat.tag || TagType.Want,
     sort_order: cat.sort_order ?? maxOrder,
     is_default: cat.is_default ?? false,
     icon: cat.icon || null,
@@ -171,7 +174,7 @@ export async function createTransaction(tx: Partial<Transaction>): Promise<Trans
   const now = new Date().toISOString();
   const newTx: Transaction = {
     id: tx.id || crypto.randomUUID(),
-    type: tx.type || "outflow",
+    type: tx.type || TransactionType.Outflow,
     amount: Number(tx.amount) || 0,
     category_id: tx.category_id || null,
     date: tx.date || now.slice(0, 10),
@@ -179,7 +182,7 @@ export async function createTransaction(tx: Partial<Transaction>): Promise<Trans
     merchant: tx.merchant || null,
     notes: tx.notes || null,
     tags: tx.tags || [],
-    tag: tx.tag || "Want",
+    tag: tx.tag || TagType.Want,
     attachment_url: tx.attachment_url || null,
     created_at: tx.created_at || now,
     updated_at: now,
@@ -212,10 +215,10 @@ export async function createBudget(b: Partial<Budget>): Promise<Budget> {
   await ensureInitialized();
   const newBudget: Budget = {
     id: b.id || crypto.randomUUID(),
-    type: b.type || "overall",
+    type: b.type || BudgetType.Overall,
     category_id: b.category_id || null,
     amount: Number(b.amount) || 0,
-    period: b.period || "monthly",
+    period: b.period || BudgetPeriod.Monthly,
     created_at: b.created_at || new Date().toISOString(),
   };
   await db.budgets.put(newBudget);
@@ -239,14 +242,14 @@ export async function createRecurringTransaction(r: Partial<RecurringTransaction
   await ensureInitialized();
   const newRec: RecurringTransaction = {
     id: r.id || crypto.randomUUID(),
-    type: r.type || "outflow",
+    type: r.type || TransactionType.Outflow,
     amount: Number(r.amount) || 0,
     category_id: r.category_id || null,
     account_id: r.account_id || null,
     merchant: r.merchant || null,
     notes: r.notes || null,
-    tag: r.tag || "Need",
-    frequency: r.frequency || "monthly",
+    tag: r.tag || TagType.Need,
+    frequency: r.frequency || RecurringFrequency.Monthly,
     custom_days: r.custom_days || null,
     start_date: r.start_date || new Date().toISOString().slice(0, 10),
     end_date: r.end_date || null,
@@ -285,7 +288,7 @@ export async function createPayeeRule(rule: Partial<PayeeRule>): Promise<PayeeRu
     id: rule.id || crypto.randomUUID(),
     payee_name: rule.payee_name || "",
     category_id: rule.category_id || null,
-    type: rule.type || "outflow",
+    type: rule.type || TransactionType.Outflow,
     is_active: rule.is_active ?? true,
     created_at: rule.created_at || new Date().toISOString(),
   };
