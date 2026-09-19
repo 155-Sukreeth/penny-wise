@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import type { AppSettings, Transaction, TransactionType, TagType } from "@/types";
 import { TAG_BG_COLORS } from "@/types";
-import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction, createCategory, createAccount } from "@/lib/data";
+import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction, createCategory, createAccount, type TransactionWithNames } from "@/lib/data";
 import { db } from "@/lib/db";
 import { importTransactionsWithAI } from "@/lib/ai";
 import { formatCurrency, getTodayString } from "@/lib/format";
@@ -57,6 +57,58 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
     return rows.filter(r => r.some(c => c.trim()));
   };
 
+  const checkIsDuplicate = (
+    candidate: {
+      date: string;
+      amount: number;
+      type: TransactionType;
+      merchant?: string | null;
+      category?: string | null;
+      notes?: string | null;
+    },
+    existingList: TransactionWithNames[]
+  ): boolean => {
+    return existingList.some(t => {
+      // 1. Must match transaction type (inflow vs outflow)
+      if (t.type !== candidate.type) return false;
+
+      // 2. Must match amount (accounting for floating point differences)
+      if (Math.abs(Number(t.amount) - candidate.amount) > 0.001) return false;
+
+      // 3. Must match date
+      if (t.date !== candidate.date) return false;
+
+      const candMerchant = (candidate.merchant || "").trim().toLowerCase();
+      const existMerchant = (t.merchant || "").trim().toLowerCase();
+
+      // 4. If both have merchant info, compare merchants
+      if (candMerchant && existMerchant) {
+        return candMerchant === existMerchant;
+      }
+
+      // 5. If merchant is missing from either, check category match
+      const candCat = (candidate.category || "").trim().toLowerCase();
+      const existCat = (t.category_name || "").trim().toLowerCase();
+      if (candCat && existCat && candCat === existCat) {
+        return true;
+      }
+
+      // 6. If notes match
+      const candNotes = (candidate.notes || "").trim().toLowerCase();
+      const existNotes = (t.notes || "").trim().toLowerCase();
+      if (candNotes && existNotes && candNotes === existNotes) {
+        return true;
+      }
+
+      // 7. If both have empty merchant and no category/notes match, date+type+amount match implies duplicate
+      if (!candMerchant && !existMerchant && !candNotes && !existNotes) {
+        return true;
+      }
+
+      return false;
+    });
+  };
+
   const handleFileUpload = async (file: File, useAI: boolean) => {
     setLoading(true);
     setError(null);
@@ -82,15 +134,22 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         if (!Array.isArray(results)) throw new Error("AI returned unexpected format");
 
         const existing = await fetchTransactions({ limit: 5000 });
-        const enriched = results.map(r => ({
-          ...r,
-          isDuplicate: existing.some(t =>
-            t.date === r.date &&
-            Number(t.amount) === r.amount &&
-            (t.merchant || "").toLowerCase() === (r.merchant || "").toLowerCase()
-          ),
-          selected: true,
-        }));
+        const seenAiSignatures = new Set<string>();
+
+        const enriched = results.map(r => {
+          const isDbDup = checkIsDuplicate(r, existing);
+          const sig = `${r.date}_${r.type}_${r.amount}_${(r.merchant || "").trim().toLowerCase()}_${(r.category || "").trim().toLowerCase()}`;
+          const isFileDup = seenAiSignatures.has(sig);
+          seenAiSignatures.add(sig);
+
+          const isDuplicate = isDbDup || isFileDup;
+          return {
+            ...r,
+            isDuplicate,
+            selected: !isDuplicate, // Duplicates default to UNSELECTED!
+          };
+        });
+
         setPreviewRows(enriched);
         setMode("ai-preview");
       } catch (e) {
@@ -117,7 +176,9 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
 
       const cats = await fetchCategories();
       const existing = await fetchTransactions({ limit: 5000 });
-      const parsed: PreviewRow[] = rows.slice(1).map(row => {
+      const seenFileSignatures = new Set<string>();
+
+      const rawRows = rows.slice(1).map(row => {
         const get = (name: string) => {
           const idx = headers.indexOf(name);
           return idx >= 0 ? row[idx]?.trim() || "" : "";
@@ -139,14 +200,22 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
           notes: get("notes") || "",
           tag: tagVal,
           account,
-          isDuplicate: existing.some(t =>
-            t.date === date &&
-            Number(t.amount) === amt &&
-            (t.merchant || "").toLowerCase() === merchant.toLowerCase()
-          ),
-          selected: true,
         };
       }).filter(r => r.amount > 0);
+
+      const parsed: PreviewRow[] = rawRows.map(r => {
+        const isDbDup = checkIsDuplicate(r, existing);
+        const sig = `${r.date}_${r.type}_${r.amount}_${r.merchant.trim().toLowerCase()}_${r.category.trim().toLowerCase()}`;
+        const isFileDup = seenFileSignatures.has(sig);
+        seenFileSignatures.add(sig);
+
+        const isDuplicate = isDbDup || isFileDup;
+        return {
+          ...r,
+          isDuplicate,
+          selected: !isDuplicate, // Duplicates default to UNSELECTED!
+        };
+      });
 
       setPreviewRows(parsed);
       setMode("preview");
@@ -367,7 +436,19 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   };
 
   const toggleRow = (idx: number) => {
-    setPreviewRows(prev => prev.map((r, i) => i === idx ? { ...r, selected: !r.selected } : r));
+    setPreviewRows(prev => prev.map((r, i) => (i === idx ? { ...r, selected: !r.selected } : r)));
+  };
+
+  const selectAll = () => {
+    setPreviewRows(prev => prev.map(r => ({ ...r, selected: true })));
+  };
+
+  const deselectAll = () => {
+    setPreviewRows(prev => prev.map(r => ({ ...r, selected: false })));
+  };
+
+  const skipDuplicates = () => {
+    setPreviewRows(prev => prev.map(r => ({ ...r, selected: !r.isDuplicate })));
   };
 
   if (loading) {
@@ -511,29 +592,86 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
         </div>
       )}
 
-      <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
-        <span>{previewRows.length} rows found</span>
-        <span>·</span>
-        <span>{selectedCount} selected</span>
+      <div className="flex flex-col gap-2 mb-3">
+        <div className="flex items-center justify-between text-xs text-gray-500">
+          <div>
+            <span>{previewRows.length} found</span>
+            <span> · </span>
+            <span className="font-semibold text-gray-800">{selectedCount} selected</span>
+          </div>
+          {duplicates > 0 && (
+            <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+              {duplicates} duplicate{duplicates !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          <button
+            type="button"
+            onClick={selectAll}
+            className="text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-1 hover:bg-gray-50 active:scale-95 transition"
+          >
+            Select All
+          </button>
+          <button
+            type="button"
+            onClick={deselectAll}
+            className="text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-1 hover:bg-gray-50 active:scale-95 transition"
+          >
+            Deselect All
+          </button>
+          {duplicates > 0 && (
+            <button
+              type="button"
+              onClick={skipDuplicates}
+              className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 hover:bg-amber-100 active:scale-95 transition"
+            >
+              Skip Duplicates ({duplicates})
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto">
         {previewRows.map((r, idx) => (
           <div
             key={idx}
-            className={`bg-white rounded-xl p-3 border ${r.isDuplicate ? "border-amber-200" : "border-gray-100"} ${!r.selected ? "opacity-50" : ""}`}
+            onClick={() => toggleRow(idx)}
+            className={`rounded-xl p-3 border transition-all cursor-pointer active:scale-[0.99] select-none ${
+              r.isDuplicate
+                ? r.selected
+                  ? "bg-amber-50/40 border-amber-300"
+                  : "bg-gray-50/80 border-amber-200/60 opacity-60"
+                : r.selected
+                ? "bg-white border-gray-200 shadow-sm"
+                : "bg-gray-50/80 border-gray-200/60 opacity-50"
+            }`}
           >
-            <div className="flex items-start gap-2">
-              <button onClick={() => toggleRow(idx)} className="mt-1 flex-shrink-0">
-                {r.selected ? <Check size={18} className="text-gray-900" /> : <X size={18} className="text-gray-300" />}
-              </button>
+            <div className="flex items-start gap-3">
+              {/* Distinct Checkbox container */}
+              <div
+                className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
+                  r.selected
+                    ? "bg-gray-900 text-white"
+                    : "border-2 border-gray-300 bg-white"
+                }`}
+                aria-label={r.selected ? "Deselect row" : "Select row"}
+              >
+                {r.selected && <Check size={13} strokeWidth={3} />}
+              </div>
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${r.type === "inflow" ? "bg-emerald-50" : "bg-red-50"}`}>
                     {r.type === "inflow" ? <ArrowUpRight size={12} className="text-emerald-600" /> : <ArrowDownLeft size={12} className="text-red-500" />}
                   </div>
                   <span className="text-sm font-medium text-gray-900 truncate">{r.merchant || r.category}</span>
-                  {r.isDuplicate && <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0">DUP</span>}
+                  {r.isDuplicate && (
+                    <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 border border-amber-200">
+                      Duplicate
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-400">
                   <span>{r.date}</span>
