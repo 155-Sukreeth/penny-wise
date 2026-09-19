@@ -6,6 +6,7 @@ import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction } 
 import { db } from "@/lib/db";
 import { importTransactionsWithAI } from "@/lib/ai";
 import { formatCurrency, getTodayString } from "@/lib/format";
+import { exportFile } from "@/lib/exportUtils";
 
 type ImportMode = "menu" | "normal" | "ai" | "preview" | "ai-preview";
 
@@ -189,54 +190,6 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
 
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const downloadOrShare = async (content: string, filename: string, mimeType: string) => {
-    try {
-      const blob = new Blob([content], { type: mimeType });
-
-      // Try Web Share API for mobile if supported
-      if (typeof navigator !== "undefined" && navigator.canShare) {
-        try {
-          const file = new File([blob], filename, { type: mimeType });
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              files: [file],
-              title: filename,
-            });
-            setSuccessMsg("Export shared successfully!");
-            setTimeout(() => setSuccessMsg(null), 3000);
-            return;
-          }
-        } catch (shareErr) {
-          if ((shareErr as Error).name === "AbortError") {
-            return; // User cancelled share sheet
-          }
-        }
-      }
-
-      // Standard desktop download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.style.display = "none";
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-
-      setTimeout(() => {
-        if (document.body.contains(a)) {
-          document.body.removeChild(a);
-        }
-        URL.revokeObjectURL(url);
-      }, 2000);
-
-      setSuccessMsg("File downloaded successfully!");
-      setTimeout(() => setSuccessMsg(null), 3000);
-    } catch (err) {
-      console.error("Export error:", err);
-      setError("Failed to export file: " + (err instanceof Error ? err.message : "unknown error"));
-    }
-  };
-
   const handleExportCSV = async () => {
     setError(null);
     try {
@@ -254,7 +207,19 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
       ]);
       const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
       const filename = `pennywise-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
-      await downloadOrShare(csv, filename, "text/csv");
+      const result = await exportFile({
+        content: csv,
+        filename,
+        mimeType: "text/csv",
+        dialogTitle: "Export Transactions CSV",
+      });
+
+      if (result.success) {
+        setSuccessMsg(result.method === "shared" ? "Export shared successfully!" : "File downloaded successfully!");
+        setTimeout(() => setSuccessMsg(null), 3000);
+      } else if (result.error) {
+        setError("Failed to export CSV: " + result.error);
+      }
     } catch (e) {
       setError("Failed to export CSV: " + (e instanceof Error ? e.message : "unknown error"));
     }
@@ -285,7 +250,19 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
       };
       const jsonStr = JSON.stringify(backup, null, 2);
       const filename = `pennywise-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      await downloadOrShare(jsonStr, filename, "application/json");
+      const result = await exportFile({
+        content: jsonStr,
+        filename,
+        mimeType: "application/json",
+        dialogTitle: "Export PennyWise Backup",
+      });
+
+      if (result.success) {
+        setSuccessMsg(result.method === "shared" ? "Backup shared successfully!" : "File downloaded successfully!");
+        setTimeout(() => setSuccessMsg(null), 3000);
+      } else if (result.error) {
+        setError("Failed to generate backup: " + result.error);
+      }
     } catch (e) {
       setError("Failed to generate backup: " + (e instanceof Error ? e.message : "unknown error"));
     }
