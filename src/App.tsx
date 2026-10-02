@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { Home, ArrowLeftRight, PiggyBank, FileBarChart, Repeat, Download, Settings as SettingsIcon, Plus } from "lucide-react";
+import { Home, ArrowLeftRight, PiggyBank, FileBarChart, Repeat, Download, Plus } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { loadSettings } from "@/lib/settings";
 import { initNotifications, onNotificationAction, onInAppNotification, type AppNotification } from "@/lib/notifications";
 import { syncAllRecurringReminders } from "@/lib/recurringReminders";
 import { syncDailyNudge } from "@/lib/dailyNudge";
 import { NotificationToast } from "@/components/NotificationToast";
+import { SidePanel } from "@/components/SidePanel";
 import { Dashboard } from "@/screens/Dashboard";
 import { Transactions } from "@/screens/Transactions";
 import { Budgets } from "@/screens/Budgets";
@@ -36,14 +37,16 @@ interface NavItem {
   icon: typeof Home;
 }
 
-const NAV_ITEMS: NavItem[] = [
+const LEFT_NAV_ITEMS: NavItem[] = [
   { name: "dashboard", label: "Home", icon: Home },
   { name: "transactions", label: "Activity", icon: ArrowLeftRight },
   { name: "budgets", label: "Budgets", icon: PiggyBank },
+];
+
+const RIGHT_NAV_ITEMS: NavItem[] = [
   { name: "reports", label: "Reports", icon: FileBarChart },
   { name: "recurring", label: "Recurring", icon: Repeat },
   { name: "import-export", label: "Data", icon: Download },
-  { name: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export default function App() {
@@ -54,6 +57,7 @@ export default function App() {
   const [targetRecurringId, setTargetRecurringId] = useState<string | null>(null);
   const [activeToast, setActiveToast] = useState<AppNotification | null>(null);
   const [locked, setLocked] = useState(false);
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -101,6 +105,7 @@ export default function App() {
 
   const navigate = useCallback((s: ScreenName) => {
     setScreen(s);
+    setSidePanelOpen(false);
     if (s !== "add-transaction") setEditTransactionId(null);
     if (s !== "add-recurring") setEditRecurringId(null);
     if (s !== "recurring") setTargetRecurringId(null);
@@ -171,6 +176,14 @@ export default function App() {
   return (
     <div className="h-[100dvh] w-full bg-gray-100 flex justify-center overflow-hidden">
       <div className="w-full max-w-md flex flex-col h-full bg-gray-50 relative shadow-xl overflow-hidden">
+        <SidePanel
+          isOpen={sidePanelOpen}
+          onClose={() => setSidePanelOpen(false)}
+          onNavigate={navigate}
+          currentScreen={screen}
+          settings={settings}
+        />
+
         <NotificationToast
           notification={activeToast}
           onClose={() => setActiveToast(null)}
@@ -178,7 +191,14 @@ export default function App() {
         />
 
         <main className="flex-1 overflow-y-auto">
-          {screen === "dashboard" && <Dashboard settings={settings} onNavigate={navigate} onEditTransaction={handleEditTransaction} />}
+          {screen === "dashboard" && (
+            <Dashboard
+              settings={settings}
+              onNavigate={navigate}
+              onEditTransaction={handleEditTransaction}
+              onOpenSidePanel={() => setSidePanelOpen(true)}
+            />
+          )}
           {screen === "transactions" && <Transactions settings={settings} onEditTransaction={handleEditTransaction} onNavigate={navigate} />}
           {screen === "budgets" && <Budgets settings={settings} />}
           {screen === "reports" && <Reports settings={settings} />}
@@ -222,33 +242,46 @@ export default function App() {
 }
 
 function BottomNav({ current, onNavigate }: { current: ScreenName; onNavigate: (s: ScreenName) => void }) {
+  const renderNavGroup = (items: NavItem[]) => (
+    <div className="flex items-center justify-around flex-1">
+      {items.map((item) => {
+        const Icon = item.icon;
+        const active = current === item.name;
+        return (
+          <button
+            key={item.name}
+            onClick={() => onNavigate(item.name)}
+            className={`flex flex-col items-center justify-center gap-0.5 py-1 px-1 rounded-xl transition-all min-w-[42px] ${
+              active ? "text-gray-900 font-semibold" : "text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            <Icon size={19} strokeWidth={active ? 2.5 : 1.8} />
+            <span className="text-[10px] leading-tight tracking-tight">{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
-    <>
-      <button
-        onClick={() => onNavigate("add-transaction")}
-        className="absolute bottom-16 right-4 w-13 h-13 p-3.5 bg-gray-900 text-white rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform z-30"
-        aria-label="Add transaction"
-      >
-        <Plus size={24} />
-      </button>
-      <nav className="h-16 bg-white border-t border-gray-200 px-1 flex items-center justify-around z-20 w-full flex-shrink-0">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const active = current === item.name;
-          return (
-            <button
-              key={item.name}
-              onClick={() => onNavigate(item.name)}
-              className={`flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 rounded-lg transition-colors min-w-[42px] ${
-                active ? "text-gray-900 font-semibold" : "text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
-              <span className="text-[10px] leading-tight">{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
-    </>
+    <nav className="h-16 bg-white border-t border-gray-200 px-1 flex items-center justify-between z-20 w-full flex-shrink-0 relative">
+      {/* Left items: Home, Activity, Budgets */}
+      {renderNavGroup(LEFT_NAV_ITEMS)}
+
+      {/* Center + Button */}
+      <div className="flex items-center justify-center px-1 flex-shrink-0 -mt-5">
+        <button
+          onClick={() => onNavigate("add-transaction")}
+          className="w-13 h-13 p-3.5 bg-gray-900 text-white rounded-full shadow-lg shadow-gray-900/25 border-4 border-gray-50 flex items-center justify-center active:scale-90 transition-all hover:bg-black focus:outline-none"
+          aria-label="Add transaction"
+          title="Add Transaction"
+        >
+          <Plus size={22} strokeWidth={2.6} />
+        </button>
+      </div>
+
+      {/* Right items: Reports, Recurring, Data */}
+      {renderNavGroup(RIGHT_NAV_ITEMS)}
+    </nav>
   );
 }
