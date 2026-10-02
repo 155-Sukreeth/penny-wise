@@ -190,11 +190,25 @@ export async function cancelRecurringReminder(recurringId: string): Promise<void
   await cancelNotificationBatch(ids);
 }
 
+let inFlightSyncRecurring: Promise<void> | null = null;
+
 /**
  * Synchronize all recurring reminders across the entire database.
  * Used when master notifications toggle in Settings is enabled or when app launches.
  */
-export async function syncAllRecurringReminders(): Promise<void> {
+export function syncAllRecurringReminders(): Promise<void> {
+  if (inFlightSyncRecurring) return inFlightSyncRecurring;
+  inFlightSyncRecurring = (async () => {
+    try {
+      await performSyncAllRecurringReminders();
+    } finally {
+      inFlightSyncRecurring = null;
+    }
+  })();
+  return inFlightSyncRecurring;
+}
+
+async function performSyncAllRecurringReminders(): Promise<void> {
   const settings = await loadSettings();
 
   const allRecurring = await db.recurring_transactions.toArray();

@@ -82,16 +82,23 @@ export function formatDateLong(dateStr: string): string {
   });
 }
 
+export function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function getTodayString(): string {
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalDate(new Date());
 }
 
 export function getMonthBounds(date: Date = new Date()): { start: string; end: string } {
   const start = new Date(date.getFullYear(), date.getMonth(), 1);
   const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
   return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
+    start: formatLocalDate(start),
+    end: formatLocalDate(end),
   };
 }
 
@@ -103,8 +110,8 @@ export function getWeekBounds(date: Date = new Date()): { start: string; end: st
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
   return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
+    start: formatLocalDate(start),
+    end: formatLocalDate(end),
   };
 }
 
@@ -200,6 +207,6 @@ export function calculateNextDate(from: string, frequency: string, customDays?: 
   else if (frequency === "yearly") d.setFullYear(d.getFullYear() + 1);
   else if (frequency === "custom" && customDays) d.setDate(d.getDate() + customDays);
   else d.setDate(d.getDate() + 7);
-  return d.toISOString().slice(0, 10);
+  return formatLocalDate(d);
 }
 

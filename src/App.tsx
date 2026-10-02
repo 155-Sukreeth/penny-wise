@@ -56,7 +56,10 @@ export default function App() {
   const [locked, setLocked] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     loadSettings().then((s) => {
+      if (!isMounted) return;
       setSettings(s);
       if (s.appLockEnabled && s.appLockPin) {
         setLocked(true);
@@ -90,7 +93,10 @@ export default function App() {
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    return () => {
+      isMounted = false;
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
 
   const navigate = useCallback((s: ScreenName) => {

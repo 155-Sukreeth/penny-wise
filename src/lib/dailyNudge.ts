@@ -11,6 +11,8 @@ import { NotificationTemplates } from "@/lib/notificationMessages";
 
 export const DAILY_NUDGE_NOTIFICATION_ID = 999001;
 
+let inFlightSync: Promise<void> | null = null;
+
 /**
  * Reconciles the scheduled daily inactive reminder with the user's current activity.
  *
@@ -20,7 +22,19 @@ export const DAILY_NUDGE_NOTIFICATION_ID = 999001;
  * 3. If zero transactions logged today and alert time has not yet passed, arms today's alert.
  * 4. Configured with native `every: 'day'` so it continues ringing on subsequent inactive days.
  */
-export async function syncDailyNudge(): Promise<void> {
+export function syncDailyNudge(): Promise<void> {
+  if (inFlightSync) return inFlightSync;
+  inFlightSync = (async () => {
+    try {
+      await performSyncDailyNudge();
+    } finally {
+      inFlightSync = null;
+    }
+  })();
+  return inFlightSync;
+}
+
+async function performSyncDailyNudge(): Promise<void> {
   const settings = await loadSettings();
 
   if (!settings.notificationsEnabled || !settings.dailyNudgeEnabled) {
@@ -34,13 +48,12 @@ export async function syncDailyNudge(): Promise<void> {
   }
 
   const todayStr = getTodayString();
-  const [y, m, d] = todayStr.split("-").map(Number);
   const [hourStr, minStr] = (settings.dailyNudgeTime || "21:00").split(":");
   const hour = isNaN(Number(hourStr)) ? 21 : Number(hourStr);
   const minute = isNaN(Number(minStr)) ? 0 : Number(minStr);
 
   const now = new Date();
-  const todayTrigger = new Date(y, m - 1, d, hour, minute, 0, 0);
+  const todayTrigger = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
 
   // Check if user has recorded any transactions today
   const txsToday = await fetchTransactions({
@@ -53,7 +66,7 @@ export async function syncDailyNudge(): Promise<void> {
 
   if (txsToday.length > 0) {
     // User was already active today! Cancel today's alert and target tomorrow
-    targetDate = new Date(y, m - 1, d + 1, hour, minute, 0, 0);
+    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hour, minute, 0, 0);
   } else {
     // Zero transactions logged today
     if (todayTrigger.getTime() > now.getTime()) {
@@ -61,8 +74,13 @@ export async function syncDailyNudge(): Promise<void> {
       targetDate = todayTrigger;
     } else {
       // Alert time today has already passed; queue for tomorrow
-      targetDate = new Date(y, m - 1, d + 1, hour, minute, 0, 0);
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hour, minute, 0, 0);
     }
+  }
+
+  // Absolute invariant: a scheduled daily reminder must strictly be in the future!
+  while (targetDate.getTime() <= now.getTime()) {
+    targetDate.setDate(targetDate.getDate() + 1);
   }
 
   // Cancel any existing alarm first

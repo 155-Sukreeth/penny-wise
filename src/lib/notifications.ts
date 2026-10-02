@@ -238,7 +238,12 @@ export async function scheduleNotificationBatch(notifications: AppNotification[]
   if (notifications.length === 0) return;
 
   if (Capacitor.isNativePlatform()) {
-    const formatted = notifications.map((n) => {
+    const valid = notifications.filter(
+      (n) => !n.scheduleAt || n.scheduleAt.getTime() > Date.now()
+    );
+    if (valid.length === 0) return;
+
+    const formatted = valid.map((n) => {
       const channelId = n.channelId || NOTIFICATION_CHANNELS.REMINDERS;
       const isScheduled = n.scheduleAt && n.scheduleAt.getTime() > Date.now();
 
@@ -272,6 +277,12 @@ export async function scheduleNotificationBatch(notifications: AppNotification[]
     if (webTimers.has(n.id)) {
       clearTimeout(webTimers.get(n.id));
       webTimers.delete(n.id);
+    }
+
+    // If scheduleAt was explicitly provided and has already passed, skip it!
+    // Scheduled alarms should only fire when their time arrives, not retroactively when launching the app.
+    if (n.scheduleAt && n.scheduleAt.getTime() <= Date.now()) {
+      continue;
     }
 
     const delayMs = n.scheduleAt ? n.scheduleAt.getTime() - Date.now() : 0;
