@@ -71,6 +71,8 @@ jobs:
 
       - name: Build Web Assets & Sync Capacitor
         run: npm run cap:build
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID || vars.VITE_GOOGLE_CLIENT_ID }}
 
       - name: Set up Java JDK 21
         uses: actions/setup-java@v4

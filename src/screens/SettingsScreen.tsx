@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Settings as SettingsIcon, ChevronRight, Tag, CreditCard, Bell, Lock, Database,
-  Sparkles, Plus, X, Trash2, Check, GripVertical, ArrowUp, ArrowDown, Globe, Palette, Smartphone
+  Sparkles, Plus, X, Trash2, Check, GripVertical, ArrowUp, ArrowDown, Globe, Palette, Smartphone,
+  Cloud, RefreshCw, LogOut, ChevronDown
 } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import type { AppSettings, Category } from "@/types";
@@ -27,6 +28,10 @@ import {
   uploadBackupToGoogleDrive,
   restoreBackupFromGoogleDrive,
   findDriveBackupFile,
+  getGoogleClientId,
+  isGoogleConfigured,
+  clearGoogleDriveSession,
+  type GoogleDriveFileInfo,
 } from "@/lib/googleDrive";
 
 type SubPage = "menu" | "general" | "categories" | "accounts" | "notifications" | "security" | "data" | "ai" | "payee-rules" | "google-sync";
@@ -887,44 +892,65 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
     clientId: "",
     userEmail: null,
     lastSyncedAt: null,
-    autoSync: true,
+    autoSync: false,
   };
 
-  const [clientIdInput, setClientIdInput] = useState(sync.clientId || "");
+  const configuredId = getGoogleClientId(sync.clientId);
+  const [customClientId, setCustomClientId] = useState(sync.clientId || "");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [cachedToken, setCachedToken] = useState<string | null>(null);
-
-  const saveClientId = () => {
-    onUpdate({
-      googleSync: {
-        ...sync,
-        clientId: clientIdInput.trim(),
-      },
-    });
-    setStatusMsg({ type: "success", text: "Client ID saved successfully." });
-    setTimeout(() => setStatusMsg(null), 3000);
-  };
+  const [existingCloudFile, setExistingCloudFile] = useState<GoogleDriveFileInfo | null>(null);
+  const [showConflictModal, setShowConflictModal] = useState(false);
 
   const handleConnect = async () => {
-    if (!clientIdInput.trim()) {
-      setStatusMsg({ type: "error", text: "Please enter your Google OAuth Client ID first." });
-      return;
-    }
     setLoading(true);
     setStatusMsg(null);
     try {
-      const { accessToken, email } = await requestGoogleAccessToken(clientIdInput.trim());
+      const activeClientId = customClientId.trim() || configuredId;
+      if (!activeClientId) {
+        setStatusMsg({
+          type: "error",
+          text: "No Client ID configured. Please configure VITE_GOOGLE_CLIENT_ID or enter a Client ID in Advanced Settings.",
+        });
+        setShowAdvanced(true);
+        return;
+      }
+
+      const { accessToken, email } = await requestGoogleAccessToken(customClientId.trim());
       setCachedToken(accessToken);
-      onUpdate({
-        googleSync: {
-          ...sync,
-          enabled: true,
-          clientId: clientIdInput.trim(),
-          userEmail: email || sync.userEmail || "Connected User",
-        },
-      });
-      setStatusMsg({ type: "success", text: `Connected as ${email || "Google Account"}!` });
+
+      // Check if an existing backup already exists on Google Drive
+      const existing = await findDriveBackupFile(accessToken);
+      if (existing) {
+        setExistingCloudFile(existing);
+        const cloudTime = new Date(existing.modifiedTime).toLocaleString();
+        onUpdate({
+          googleSync: {
+            ...sync,
+            enabled: true,
+            clientId: customClientId.trim(),
+            userEmail: email || sync.userEmail || "Connected User",
+            lastSyncedAt: cloudTime,
+          },
+        });
+        setShowConflictModal(true);
+      } else {
+        // No existing backup on Drive, create initial snapshot
+        const res = await uploadBackupToGoogleDrive(accessToken);
+        const nowStr = new Date(res.modifiedTime).toLocaleString();
+        onUpdate({
+          googleSync: {
+            ...sync,
+            enabled: true,
+            clientId: customClientId.trim(),
+            userEmail: email || sync.userEmail || "Connected User",
+            lastSyncedAt: nowStr,
+          },
+        });
+        setStatusMsg({ type: "success", text: `Connected as ${email || "Google Account"}! Initial backup saved.` });
+      }
     } catch (err) {
       setStatusMsg({ type: "error", text: err instanceof Error ? err.message : "Authentication failed" });
     } finally {
@@ -934,6 +960,7 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
 
   const handleDisconnect = () => {
     setCachedToken(null);
+    clearGoogleDriveSession();
     onUpdate({
       googleSync: {
         ...sync,
@@ -951,7 +978,7 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
     try {
       let token = cachedToken;
       if (!token) {
-        const auth = await requestGoogleAccessToken(sync.clientId || clientIdInput);
+        const auth = await requestGoogleAccessToken(sync.clientId);
         token = auth.accessToken;
         setCachedToken(token);
       }
@@ -978,7 +1005,7 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
     try {
       let token = cachedToken;
       if (!token) {
-        const auth = await requestGoogleAccessToken(sync.clientId || clientIdInput);
+        const auth = await requestGoogleAccessToken(sync.clientId);
         token = auth.accessToken;
         setCachedToken(token);
       }
@@ -990,6 +1017,19 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
       setLoading(false);
     }
   };
+
+  const handleSaveCustomId = () => {
+    onUpdate({
+      googleSync: {
+        ...sync,
+        clientId: customClientId.trim(),
+      },
+    });
+    setStatusMsg({ type: "success", text: "Custom Client ID saved." });
+    setTimeout(() => setStatusMsg(null), 3000);
+  };
+
+  const isConnected = sync.enabled && sync.userEmail;
 
   return (
     <div className="space-y-4">
@@ -1006,11 +1046,11 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
           </div>
           <div>
             <h2 className="text-base font-semibold text-gray-900">Google Drive Cloud Backup</h2>
-            <p className="text-xs text-gray-500">Private, hidden AppData folder backup</p>
+            <p className="text-xs text-gray-500">Private, encrypted storage in your personal cloud</p>
           </div>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100">
-          PennyWise uses your private Google Drive AppData folder. Backups stay in your own personal cloud account and are never accessible by third parties.
+          Backups are stored inside your private Google Drive AppData folder. PennyWise cannot read your personal Drive files, and no third parties ever have access to your data.
         </p>
       </div>
 
@@ -1027,22 +1067,33 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
         </div>
       )}
 
-      {/* Account Status Card */}
-      {sync.enabled && sync.userEmail ? (
+      {/* Main Connection / Account Card */}
+      {isConnected ? (
         <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">Connected Account</span>
-              <p className="text-sm font-semibold text-gray-900 mt-0.5">{sync.userEmail}</p>
-              {sync.lastSyncedAt && (
-                <p className="text-[11px] text-gray-500 mt-0.5">Last backup: {sync.lastSyncedAt}</p>
-              )}
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs">
+                {sync.userEmail ? sync.userEmail[0].toUpperCase() : "G"}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-gray-900">{sync.userEmail}</span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    Connected
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {sync.lastSyncedAt ? `Last backup: ${sync.lastSyncedAt}` : "No backup made yet"}
+                </p>
+              </div>
             </div>
             <button
               onClick={handleDisconnect}
-              className="text-xs text-red-600 font-medium px-2.5 py-1 bg-red-50 hover:bg-red-100 rounded-lg active:scale-95 transition-all"
+              className="text-xs text-red-600 font-medium px-2.5 py-1.5 bg-red-50 hover:bg-red-100 rounded-lg active:scale-95 transition-all flex items-center gap-1"
             >
-              Disconnect
+              <LogOut size={12} />
+              <span>Disconnect</span>
             </button>
           </div>
 
@@ -1050,68 +1101,218 @@ function GoogleSyncSettingsView({ settings, onUpdate }: { settings: AppSettings;
             <button
               onClick={handleBackupNow}
               disabled={loading}
-              className="flex-1 py-2.5 bg-gray-900 text-white rounded-xl text-xs font-semibold active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+              className="flex-1 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-semibold active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm"
             >
-              {loading ? "Backing up..." : "Backup to Google Drive"}
+              <Cloud size={14} />
+              <span>{loading ? "Backing up..." : "Backup to Drive"}</span>
             </button>
             <button
               onClick={handleRestoreNow}
               disabled={loading}
-              className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-semibold active:scale-95 transition-all disabled:opacity-50"
+              className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-semibold active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
-              Restore from Drive
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              <span>Restore Data</span>
             </button>
+          </div>
+
+          <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+            <div>
+              <span className="text-xs font-medium text-gray-800">Auto-Backup on Launch</span>
+              <p className="text-[10px] text-gray-400">Keep Drive backup updated automatically</p>
+            </div>
+            <Toggle
+              checked={sync.autoSync ?? false}
+              onChange={(v) => {
+                onUpdate({
+                  googleSync: {
+                    ...sync,
+                    autoSync: v,
+                  },
+                });
+              }}
+            />
           </div>
         </div>
       ) : (
-        /* Configuration & Connect Form */
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
-          <div>
-            <label className="text-xs text-gray-500 font-medium block mb-1">
-              Google OAuth Client ID
-            </label>
-            <input
-              type="text"
-              value={clientIdInput}
-              onChange={(e) => setClientIdInput(e.target.value)}
-              placeholder="e.g. 123456789-xyz.apps.googleusercontent.com"
-              className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-xs outline-none border border-gray-200 focus:border-gray-900 transition-colors font-mono"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">
-              Created in Google Cloud Console under APIs & Services &rarr; Credentials &rarr; OAuth 2.0 Client IDs.
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 text-center space-y-4">
+          <div className="mx-auto w-12 h-12 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+            </svg>
+          </div>
+
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold text-gray-900">Connect Google Account</h3>
+            <p className="text-xs text-gray-500 max-w-xs mx-auto">
+              Securely back up your finances to your personal Google Drive with a single tap.
             </p>
           </div>
 
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={saveClientId}
-              className="px-3.5 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold active:scale-95 transition-all hover:bg-gray-200"
-            >
-              Save ID
-            </button>
-            <button
-              onClick={handleConnect}
-              disabled={loading || !clientIdInput.trim()}
-              className="flex-1 py-2.5 bg-gray-900 text-white rounded-xl text-xs font-semibold active:scale-95 transition-all hover:bg-black disabled:opacity-50 flex items-center justify-center gap-1.5"
-            >
-              {loading ? "Connecting..." : "Sign in & Connect Drive"}
-            </button>
-          </div>
+          <button
+            onClick={handleConnect}
+            disabled={loading}
+            className="w-full py-3 bg-white hover:bg-gray-50 border border-gray-200 text-gray-800 rounded-xl text-xs font-semibold shadow-sm flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all disabled:opacity-50"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+            </svg>
+            <span>{loading ? "Connecting..." : "Sign in with Google"}</span>
+          </button>
         </div>
       )}
 
-      {/* Setup Guide Accordion */}
-      <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-2">
-        <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Setup Instructions</h3>
-        <ol className="text-xs text-gray-500 space-y-1.5 list-decimal pl-4 leading-relaxed">
-          <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-blue-600 underline">Google Cloud Console</a> and create a project.</li>
-          <li>Enable <strong>Google Drive API</strong> in <em>APIs & Services &rarr; Library</em>.</li>
-          <li>Go to <em>OAuth consent screen</em>, choose External, and add user email / scope <code className="bg-gray-100 px-1 rounded">drive.appdata</code>.</li>
-          <li>In <em>Credentials</em>, create an <strong>OAuth Client ID</strong> for <strong>Web Application</strong>.</li>
-          <li>Add your app origin URL (e.g. <code className="bg-gray-100 px-1 rounded">http://localhost:5173</code>) under <em>Authorized JavaScript origins</em>.</li>
-          <li>Paste the generated Client ID above and click <strong>Sign in & Connect Drive</strong>.</li>
-        </ol>
+      {/* Advanced Settings Accordion (Collapsible for custom self-hosters) */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+        >
+          <div>
+            <span className="text-xs font-semibold text-gray-700 block">Advanced / Custom Credentials</span>
+            <span className="text-[11px] text-gray-400">For self-hosters or custom OAuth Client IDs</span>
+          </div>
+          <ChevronDown
+            size={16}
+            className={`text-gray-400 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {showAdvanced && (
+          <div className="p-4 pt-0 border-t border-gray-50 space-y-3">
+            <div>
+              <label className="text-[11px] text-gray-500 font-medium block mb-1">
+                Custom Google OAuth Client ID (Optional)
+              </label>
+              <input
+                type="text"
+                value={customClientId}
+                onChange={(e) => setCustomClientId(e.target.value)}
+                placeholder={configuredId ? `Using default: ${configuredId.slice(0, 16)}...` : "e.g. 123456789-xyz.apps.googleusercontent.com"}
+                className="w-full px-3 py-2 bg-gray-50 rounded-xl text-xs outline-none border border-gray-200 focus:border-gray-900 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-gray-400 mt-1">
+                Leave empty to use the pre-configured app client ID.
+              </p>
+            </div>
+            <button
+              onClick={handleSaveCustomId}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold active:scale-95 transition-all"
+            >
+              Save Custom ID
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Existing Cloud Backup Decision Modal */}
+      {showConflictModal && existingCloudFile && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                <Cloud size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Existing Backup Found</h3>
+                <p className="text-[11px] text-gray-500">
+                  Backed up on {new Date(existingCloudFile.modifiedTime).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100">
+              Your Google Drive already contains an expense database from this account. What would you like to do?
+            </p>
+
+            <div className="space-y-2 pt-1">
+              <button
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    let token = cachedToken;
+                    if (!token) {
+                      const auth = await requestGoogleAccessToken(sync.clientId);
+                      token = auth.accessToken;
+                      setCachedToken(token);
+                    }
+                    const res = await restoreBackupFromGoogleDrive(token);
+                    setShowConflictModal(false);
+                    setStatusMsg({
+                      type: "success",
+                      text: `Restored ${res.restoredCount} transactions from Google Drive!`,
+                    });
+                  } catch (err) {
+                    setStatusMsg({
+                      type: "error",
+                      text: err instanceof Error ? err.message : "Restore failed",
+                    });
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="w-full py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-semibold active:scale-95 transition-all flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+                <span>Restore from Cloud (Recommended)</span>
+              </button>
+
+              <button
+                onClick={async () => {
+                  if (!confirm("This will overwrite the cloud backup with this device's current records. Are you sure?")) return;
+                  try {
+                    setLoading(true);
+                    let token = cachedToken;
+                    if (!token) {
+                      const auth = await requestGoogleAccessToken(sync.clientId);
+                      token = auth.accessToken;
+                      setCachedToken(token);
+                    }
+                    const res = await uploadBackupToGoogleDrive(token);
+                    const nowStr = new Date(res.modifiedTime).toLocaleString();
+                    onUpdate({
+                      googleSync: {
+                        ...sync,
+                        lastSyncedAt: nowStr,
+                      },
+                    });
+                    setShowConflictModal(false);
+                    setStatusMsg({
+                      type: "success",
+                      text: `Cloud backup overwritten with local data (${nowStr}).`,
+                    });
+                  } catch (err) {
+                    setStatusMsg({
+                      type: "error",
+                      text: err instanceof Error ? err.message : "Backup failed",
+                    });
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold active:scale-95 transition-all"
+              >
+                Keep Local & Overwrite Cloud
+              </button>
+
+              <button
+                onClick={() => setShowConflictModal(false)}
+                className="w-full py-2 text-gray-400 hover:text-gray-600 text-xs font-medium active:scale-95 transition-all text-center block"
+              >
+                Decide Later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

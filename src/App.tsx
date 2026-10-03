@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { Home, ArrowLeftRight, PiggyBank, FileBarChart, Repeat, Download, Plus } from "lucide-react";
 import type { AppSettings } from "@/types";
-import { loadSettings } from "@/lib/settings";
+import { loadSettings, updateSettings } from "@/lib/settings";
 import { initNotifications, onNotificationAction, onInAppNotification, type AppNotification } from "@/lib/notifications";
 import { syncAllRecurringReminders } from "@/lib/recurringReminders";
 import { syncDailyNudge } from "@/lib/dailyNudge";
+import { handleOAuthCallback, uploadBackupToGoogleDrive, requestGoogleAccessToken, findDriveBackupFile } from "@/lib/googleDrive";
 import { NotificationToast } from "@/components/NotificationToast";
 import { SidePanel } from "@/components/SidePanel";
 import { Dashboard } from "@/screens/Dashboard";
@@ -62,7 +63,7 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    loadSettings().then((s) => {
+    loadSettings().then(async (s) => {
       if (!isMounted) return;
       setSettings(s);
       if (s.appLockEnabled && s.appLockPin) {
@@ -74,16 +75,90 @@ export default function App() {
           syncDailyNudge();
         }
       }
+
+      // Auto-sync on app launch if enabled
+      if (s.googleSync?.enabled && s.googleSync?.autoSync && navigator.onLine) {
+        try {
+          const auth = await requestGoogleAccessToken(s.googleSync.clientId);
+          await uploadBackupToGoogleDrive(auth.accessToken);
+          const nowStr = new Date().toLocaleString();
+          const updated = await updateSettings({
+            googleSync: { ...s.googleSync, lastSyncedAt: nowStr },
+          });
+          if (isMounted) {
+            setSettings(updated);
+          }
+        } catch {
+          // Silent background sync failure
+        }
+      }
     });
 
-    // Handle deep-linking query parameters if opened directly from a notification
+    // Handle deep-linking query parameters (OAuth callback or Notification navigation)
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const targetScreen = params.get("screen") as ScreenName | null;
       const recurringId = params.get("recurringId");
+      const oauthCode = params.get("code");
+
+      if (oauthCode) {
+        handleOAuthCallback(oauthCode)
+          .then(async ({ accessToken, email }) => {
+            const current = await loadSettings();
+            const existingCloud = await findDriveBackupFile(accessToken);
+            const cloudTimestamp = existingCloud
+              ? new Date(existingCloud.modifiedTime).toLocaleString()
+              : null;
+
+            const updatedSync = {
+              ...(current.googleSync || { autoSync: false, lastSyncedAt: null, clientId: "" }),
+              enabled: true,
+              userEmail: email || current.googleSync?.userEmail || "Connected User",
+              lastSyncedAt: cloudTimestamp || current.googleSync?.lastSyncedAt || null,
+            };
+            const updated = await updateSettings({ googleSync: updatedSync });
+            setSettings(updated);
+
+            if (existingCloud) {
+              setActiveToast({
+                id: Date.now(),
+                title: "Existing Cloud Backup Found",
+                body: `Found backup from ${cloudTimestamp}. Go to Settings > Google Backup to restore.`,
+              });
+            } else {
+              // Initial backup snapshot only if NO existing backup was found on Drive
+              try {
+                const res = await uploadBackupToGoogleDrive(accessToken);
+                const nowStr = new Date(res.modifiedTime).toLocaleString();
+                const latest = await updateSettings({
+                  googleSync: { ...updatedSync, lastSyncedAt: nowStr },
+                });
+                setSettings(latest);
+                setActiveToast({
+                  id: Date.now(),
+                  title: "Google Drive Connected",
+                  body: `Initial backup created (${nowStr}).`,
+                });
+              } catch {
+                setActiveToast({
+                  id: Date.now(),
+                  title: "Google Drive Connected",
+                  body: `Connected as ${email || "Google Account"}!`,
+                });
+              }
+            }
+          })
+          .catch((err) => {
+            console.error("OAuth callback error:", err);
+          });
+      }
+
       if (targetScreen) {
         setScreen(targetScreen);
         if (recurringId) setTargetRecurringId(recurringId);
+      }
+
+      if (targetScreen || oauthCode) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
