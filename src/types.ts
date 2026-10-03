@@ -132,6 +132,14 @@ export enum AppTheme {
   Dark = "dark",
 }
 
+export interface GoogleSyncSettings {
+  enabled: boolean;
+  clientId: string;
+  userEmail: string | null;
+  lastSyncedAt: string | null;
+  autoSync: boolean;
+}
+
 export interface AppSettings {
   currency: string;
   currencySymbol: string;
@@ -147,6 +155,7 @@ export interface AppSettings {
   dailyNudgeTime: string;
   appLockEnabled: boolean;
   appLockPin: string | null;
+  googleSync?: GoogleSyncSettings;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -167,6 +176,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dailyNudgeTime: "21:00",
   appLockEnabled: false,
   appLockPin: null,
+  googleSync: {
+    enabled: false,
+    clientId: "",
+    userEmail: null,
+    lastSyncedAt: null,
+    autoSync: true,
+  },
 };
 
 export const TAG_COLORS: Record<TagType, string> = {
