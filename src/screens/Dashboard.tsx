@@ -13,6 +13,7 @@ interface DashboardProps {
   settings: AppSettings;
   onNavigate: (s: ScreenName) => void;
   onEditTransaction: (id: string) => void;
+  onOpenSidePanel?: () => void;
 }
 
 const PERIODS = ["today", "week", "month", "last_month", "year", "custom"] as const;
@@ -23,7 +24,7 @@ const CATEGORY_COLORS = [
   "#14b8a6", "#e11d48", "#a855f7", "#0ea5e9",
 ];
 
-export function Dashboard({ settings, onNavigate, onEditTransaction }: DashboardProps) {
+export function Dashboard({ settings, onNavigate, onEditTransaction, onOpenSidePanel }: DashboardProps) {
   const [period, setPeriod] = useState<string>("month");
   const [customStart, setCustomStart] = useState<string>(getMonthBounds().start);
   const [customEnd, setCustomEnd] = useState<string>(getMonthBounds().end);
@@ -202,15 +203,21 @@ export function Dashboard({ settings, onNavigate, onEditTransaction }: Dashboard
   return (
     <div className="px-4 pt-6 pb-4">
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+        <button
+          onClick={onOpenSidePanel}
+          className="flex items-center gap-3 text-left active:scale-[0.98] transition-transform rounded-xl hover:opacity-90 focus:outline-none"
+          title="Open Menu"
+        >
           <img src="/logo.png" alt="PennyWise Logo" className="w-10 h-10 rounded-full border border-gray-100 shadow-sm" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">PennyWise</h1>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-1.5">
+              PennyWise
+            </h1>
             <p className="text-xs text-gray-500 mt-0.5">
               {period === "custom" ? `${formatDate(customStart, settings)} – ${formatDate(customEnd, settings)}` : periodLabel(period)}
             </p>
           </div>
-        </div>
+        </button>
         <div className="flex items-center gap-2">
           {showAIButton && (
             <button
