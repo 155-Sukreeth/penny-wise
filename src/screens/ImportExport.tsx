@@ -1,14 +1,18 @@
 import { useState, useRef, useEffect } from "react";
 import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, ArrowDownLeft, ArrowUpRight, CheckSquare, Square, ChevronRight } from "lucide-react";
-import type { AppSettings, Transaction, ImportDraft, StagedTransactionRow } from "@/types";
+import type { AppSettings, ImportDraft, StagedTransactionRow } from "@/types";
 import { TransactionType, TagType, ImportSource, ImportDraftMode, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction, createCategory, createAccount, type TransactionWithNames } from "@/lib/data";
-import { db } from "@/lib/db";
 import { importTransactionsWithAI } from "@/lib/ai";
 import { formatCurrency, getTodayString } from "@/lib/format";
-import { saveSettings } from "@/lib/settings";
 import { exportFile } from "@/lib/exportUtils";
 import { saveImportDraft, getImportDraft, clearImportDraft, refreshDraftDuplicates } from "@/lib/importStaging";
+import {
+  createFullDatabaseSnapshot,
+  restoreFullDatabaseSnapshot,
+  validateBackupPayload,
+  type DatabaseBackupPayload,
+} from "@/lib/backupUtils";
 
 type ImportMode = "menu" | "normal" | "ai" | "preview" | "ai-preview";
 
@@ -21,6 +25,13 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   const [activeDraft, setActiveDraft] = useState<ImportDraft | null>(null);
   const [pendingMode, setPendingMode] = useState<ImportMode | null>(null);
   const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<{
+    backup: DatabaseBackupPayload;
+    fileName: string;
+    txCount: number;
+    catCount: number;
+    exportedAt?: string;
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -347,26 +358,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   const handleBackup = async () => {
     setError(null);
     try {
-      const [txs, cats, accs, budgets, recurring, rules, settingsVal] = await Promise.all([
-        fetchTransactions({ limit: 50000 }),
-        fetchCategories(),
-        fetchAccounts(),
-        db.budgets.toArray(),
-        db.recurring_transactions.toArray(),
-        db.payee_rules.toArray(),
-        db.app_settings.get("app_settings"),
-      ]);
-      const backup = {
-        version: "1.0",
-        exportedAt: new Date().toISOString(),
-        transactions: txs,
-        categories: cats,
-        accounts: accs,
-        budgets,
-        recurringTransactions: recurring,
-        payeeRules: rules,
-        settings: settingsVal?.value,
-      };
+      const backup = await createFullDatabaseSnapshot();
       const jsonStr = JSON.stringify(backup, null, 2);
       const filename = `pennywise-backup-${new Date().toISOString().slice(0, 10)}.json`;
       const result = await exportFile({
@@ -387,78 +379,44 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
     }
   };
 
-  const handleRestore = async (file: File) => {
-    setLoading(true);
+  const handleRestoreFileSelected = async (file: File) => {
     setError(null);
     try {
       const text = await file.text();
       const backup = JSON.parse(text);
-      if (!backup.transactions || !Array.isArray(backup.transactions)) {
-        setError("Invalid backup file format");
-        setLoading(false);
+      const validation = validateBackupPayload(backup);
+      if (!validation.valid) {
+        setError(validation.error || "Invalid backup file format");
         return;
       }
 
-      if (backup.categories && Array.isArray(backup.categories)) {
-        for (const cat of backup.categories) {
-          await db.categories.put(cat);
-        }
-      }
-      if (backup.accounts && Array.isArray(backup.accounts)) {
-        for (const acc of backup.accounts) {
-          await db.accounts.put(acc);
-        }
-      }
-      if (backup.budgets && Array.isArray(backup.budgets)) {
-        for (const b of backup.budgets) {
-          await db.budgets.put(b);
-        }
-      }
-      if (backup.recurringTransactions && Array.isArray(backup.recurringTransactions)) {
-        for (const r of backup.recurringTransactions) {
-          await db.recurring_transactions.put(r);
-        }
-      }
-      if (backup.payeeRules && Array.isArray(backup.payeeRules)) {
-        for (const rule of backup.payeeRules) {
-          await db.payee_rules.put(rule);
-        }
-      }
-      if (backup.settings) {
-        await saveSettings(backup.settings);
-      }
+      setPendingRestore({
+        backup,
+        fileName: file.name,
+        txCount: backup.transactions.length,
+        catCount: backup.categories?.length || 0,
+        exportedAt: backup.exportedAt,
+      });
+    } catch (e) {
+      setError("Failed to read backup file: " + (e instanceof Error ? e.message : "invalid JSON"));
+    }
+  };
 
-      const cats = await fetchCategories();
-      const accs = await fetchAccounts();
-
-      let restoredTxCount = 0;
-      for (const tx of backup.transactions) {
-        const cat = cats.find(c => c.name === tx.category_name) || cats.find(c => c.id === tx.category_id);
-        const acc = accs.find(a => a.name === tx.account_name) || accs.find(a => a.id === tx.account_id);
-        const restoredTx: Transaction = {
-          id: tx.id || crypto.randomUUID(),
-          type: (tx.type as TransactionType) || TransactionType.Outflow,
-          amount: Number(tx.amount) || 0,
-          category_id: cat?.id || tx.category_id || null,
-          date: tx.date || new Date().toISOString().slice(0, 10),
-          account_id: acc?.id || tx.account_id || null,
-          merchant: tx.merchant || null,
-          notes: tx.notes || null,
-          tag: (tx.tag as TagType) || TagType.Want,
-          tags: tx.tags || [],
-          attachment_url: tx.attachment_url || null,
-          created_at: tx.created_at || new Date().toISOString(),
-          updated_at: tx.updated_at || new Date().toISOString(),
-        };
-        await db.transactions.put(restoredTx);
-        restoredTxCount++;
-      }
+  const handleConfirmRestore = async () => {
+    if (!pendingRestore) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await restoreFullDatabaseSnapshot(pendingRestore.backup);
+      setPendingRestore(null);
       setLoading(false);
       setMode("menu");
-      setSuccessMsg(`Backup restored successfully (${restoredTxCount} transaction${restoredTxCount !== 1 ? "s" : ""} restored)!`);
+      setSuccessMsg(
+        `Backup restored successfully (${result.restoredCount} transactions, ${result.categoriesCount} categories)!`
+      );
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (e) {
-      setError("Failed to restore backup: " + (e instanceof Error ? e.message : "invalid file"));
+      setError("Failed to restore backup: " + (e instanceof Error ? e.message : "restore error"));
       setLoading(false);
     }
   };
@@ -653,7 +611,7 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
             type="file"
             accept=".json,application/json,text/plain"
             className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleRestore(f); e.target.value = ""; }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleRestoreFileSelected(f); e.target.value = ""; }}
           />
         </div>
 
@@ -703,6 +661,55 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
                 <button
                   type="button"
                   onClick={handleCancelWarning}
+                  className="w-full py-2.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition text-center"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Restore Confirmation Modal */}
+        {pendingRestore && (
+          <div
+            className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-in fade-in"
+            onClick={() => !loading && setPendingRestore(null)}
+          >
+            <div
+              className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-4 text-red-600">
+                <AlertCircle size={24} />
+              </div>
+
+              <h3 className="text-base font-bold text-gray-900 mb-1.5">
+                Restore Full Backup?
+              </h3>
+
+              <p className="text-xs text-gray-500 leading-relaxed mb-4">
+                Restoring <span className="font-semibold text-gray-800 truncate inline-block max-w-[200px] align-bottom">{pendingRestore.fileName}</span> will replace all existing transactions, categories, and budgets with the data from this backup ({pendingRestore.txCount} transaction{pendingRestore.txCount !== 1 ? "s" : ""}, {pendingRestore.catCount} categories).
+              </p>
+
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200/70 rounded-xl p-3 mb-5 font-medium leading-relaxed">
+                ⚠️ Current transactions on this device will be cleanly replaced with the backup snapshot.
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={handleConfirmRestore}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white rounded-xl text-xs font-semibold shadow-xs active:scale-[0.98] transition flex items-center justify-center gap-1.5"
+                >
+                  {loading ? <Loader className="animate-spin" size={16} /> : "Restore & Replace Data"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setPendingRestore(null)}
                   className="w-full py-2.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition text-center"
                 >
                   Cancel
