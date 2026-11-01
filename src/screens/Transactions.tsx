@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Search, SlidersHorizontal, X, ArrowUpRight, ArrowDownRight, Trash2, CheckSquare, Square, ChevronDown, ChevronLeft, ChevronRight, Calendar, Plus } from "lucide-react";
+import { Search, SlidersHorizontal, X, ArrowUpRight, ArrowDownRight, Trash2, CheckSquare, Square, ChevronDown, ChevronLeft, ChevronRight, Plus, AlertCircle, Loader } from "lucide-react";
 import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, deleteTransaction, bulkDeleteTransactions, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, relativeDate, getTodayString, getMonthBounds, formatDate } from "@/lib/format";
+import { formatCurrency, relativeDate, getMonthBounds } from "@/lib/format";
 import type { ScreenName } from "@/App";
 
 interface TransactionsProps {
@@ -35,6 +35,9 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [pendingDeleteTx, setPendingDeleteTx] = useState<TransactionWithNames | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const prevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -107,15 +110,28 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
 
   const handleBulkDelete = async () => {
     if (selected.size === 0) return;
-    await bulkDeleteTransactions(Array.from(selected));
-    setSelected(new Set());
-    setBulkMode(false);
-    load();
+    setDeleteLoading(true);
+    try {
+      await bulkDeleteTransactions(Array.from(selected));
+      setSelected(new Set());
+      setBulkMode(false);
+      setShowBulkDeleteConfirm(false);
+      load();
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
-  const handleDelete = async (id: string) => {
-    await deleteTransaction(id);
-    load();
+  const handleConfirmSingleDelete = async () => {
+    if (!pendingDeleteTx) return;
+    setDeleteLoading(true);
+    try {
+      await deleteTransaction(pendingDeleteTx.id);
+      setPendingDeleteTx(null);
+      load();
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   const totalInflow = transactions.filter(t => t.type === "inflow").reduce((s, t) => s + Number(t.amount), 0);
@@ -341,7 +357,7 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
       {bulkMode && selected.size > 0 && (
         <div className="bg-gray-900 text-white rounded-xl p-3 mb-3 flex items-center justify-between">
           <span className="text-sm font-medium">{selected.size} selected</span>
-          <button onClick={handleBulkDelete} className="flex items-center gap-1.5 text-sm text-red-400 font-medium">
+          <button onClick={() => setShowBulkDeleteConfirm(true)} className="flex items-center gap-1.5 text-sm text-red-400 font-medium">
             <Trash2 size={15} /> Delete
           </button>
         </div>
@@ -409,8 +425,9 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
                     </button>
                     {!bulkMode && (
                       <button
-                        onClick={() => handleDelete(t.id)}
+                        onClick={() => setPendingDeleteTx(t)}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                        title="Delete transaction"
                       >
                         <Trash2 size={15} />
                       </button>
@@ -420,6 +437,98 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Single Transaction Delete Confirmation Modal */}
+      {pendingDeleteTx && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => !deleteLoading && setPendingDeleteTx(null)}
+        >
+          <div
+            className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-4 text-red-600">
+              <AlertCircle size={24} />
+            </div>
+
+            <h3 className="text-base font-bold text-gray-900 mb-1.5">
+              Delete Transaction?
+            </h3>
+
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">
+              Are you sure you want to delete this {pendingDeleteTx.type === "inflow" ? "income" : "expense"} of{" "}
+              <strong className="text-gray-900 font-semibold">{formatCurrency(pendingDeleteTx.amount, settings)}</strong>
+              {pendingDeleteTx.merchant ? ` for ${pendingDeleteTx.merchant}` : pendingDeleteTx.category_name ? ` in ${pendingDeleteTx.category_name}` : ""}? This cannot be undone.
+            </p>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={handleConfirmSingleDelete}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white rounded-xl text-xs font-semibold shadow-xs active:scale-[0.98] transition flex items-center justify-center gap-1.5"
+              >
+                {deleteLoading ? <Loader className="animate-spin" size={16} /> : "Delete Transaction"}
+              </button>
+
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={() => setPendingDeleteTx(null)}
+                className="w-full py-2.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition text-center"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => !deleteLoading && setShowBulkDeleteConfirm(false)}
+        >
+          <div
+            className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-4 text-red-600">
+              <AlertCircle size={24} />
+            </div>
+
+            <h3 className="text-base font-bold text-gray-900 mb-1.5">
+              Delete {selected.size} Transactions?
+            </h3>
+
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">
+              Are you sure you want to permanently delete these {selected.size} selected transaction{selected.size !== 1 ? "s" : ""}? This cannot be undone.
+            </p>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={handleBulkDelete}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white rounded-xl text-xs font-semibold shadow-xs active:scale-[0.98] transition flex items-center justify-center gap-1.5"
+              >
+                {deleteLoading ? <Loader className="animate-spin" size={16} /> : `Delete ${selected.size} Transactions`}
+              </button>
+
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                className="w-full py-2.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition text-center"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

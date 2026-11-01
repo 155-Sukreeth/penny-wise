@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Home, ArrowLeftRight, PiggyBank, FileBarChart, Repeat, Download, Plus } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { loadSettings, updateSettings } from "@/lib/settings";
@@ -159,8 +159,13 @@ export default function App() {
       }
 
       if (targetScreen || oauthCode) {
-        window.history.replaceState({}, document.title, window.location.pathname);
+        window.history.replaceState({ screen: targetScreen || "dashboard" }, document.title, window.location.pathname);
       }
+    }
+
+    // Initialize root history state if unset
+    if (typeof window !== "undefined" && (!window.history.state || !window.history.state.screen)) {
+      window.history.replaceState({ screen: "dashboard" }, "");
     }
 
     initNotifications();
@@ -178,12 +183,72 @@ export default function App() {
     };
   }, []);
 
-  const navigate = useCallback((s: ScreenName) => {
-    setScreen(s);
+  const sidePanelOpenRef = useRef(sidePanelOpen);
+  useEffect(() => {
+    sidePanelOpenRef.current = sidePanelOpen;
+  }, [sidePanelOpen]);
+
+  const navigate = useCallback((s: ScreenName, replace = false) => {
     setSidePanelOpen(false);
+    setScreen((current) => {
+      if (current === s) return current;
+      if (typeof window !== "undefined") {
+        if (replace) {
+          window.history.replaceState({ screen: s }, "");
+        } else {
+          window.history.pushState({ screen: s }, "");
+        }
+      }
+      return s;
+    });
     if (s !== "add-transaction") setEditTransactionId(null);
     if (s !== "add-recurring") setEditRecurringId(null);
     if (s !== "recurring") setTargetRecurringId(null);
+  }, []);
+
+  const goBack = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigate("dashboard");
+    }
+  }, [navigate]);
+
+  const handleOpenSidePanel = useCallback(() => {
+    setSidePanelOpen(true);
+    if (typeof window !== "undefined") {
+      window.history.pushState({ sidePanel: true, screen }, "");
+    }
+  }, [screen]);
+
+  const handleCloseSidePanel = useCallback(() => {
+    setSidePanelOpen(false);
+  }, []);
+
+  // Listen for browser/Android back gestures (swiping back)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (sidePanelOpenRef.current) {
+        setSidePanelOpen(false);
+        if (e.state?.screen) {
+          setScreen(e.state.screen);
+        }
+        return;
+      }
+
+      const targetScreen = (e.state?.screen as ScreenName) || "dashboard";
+      setScreen(targetScreen);
+      if (targetScreen !== "add-transaction") setEditTransactionId(null);
+      if (targetScreen !== "add-recurring") setEditRecurringId(null);
+      if (targetScreen !== "recurring") setTargetRecurringId(null);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
   }, []);
 
   useEffect(() => {
@@ -217,18 +282,18 @@ export default function App() {
 
   const handleEditTransaction = useCallback((id: string) => {
     setEditTransactionId(id);
-    setScreen("add-transaction");
-  }, []);
+    navigate("add-transaction");
+  }, [navigate]);
 
   const handleOpenAddRecurring = useCallback(() => {
     setEditRecurringId(null);
-    setScreen("add-recurring");
-  }, []);
+    navigate("add-recurring");
+  }, [navigate]);
 
   const handleOpenEditRecurring = useCallback((id: string) => {
     setEditRecurringId(id);
-    setScreen("add-recurring");
-  }, []);
+    navigate("add-recurring");
+  }, [navigate]);
 
   const handleSettingsChange = useCallback((s: AppSettings) => {
     setSettings(s);
@@ -253,7 +318,7 @@ export default function App() {
       <div className="w-full max-w-md flex flex-col h-full bg-gray-50 relative shadow-xl overflow-hidden">
         <SidePanel
           isOpen={sidePanelOpen}
-          onClose={() => setSidePanelOpen(false)}
+          onClose={handleCloseSidePanel}
           onNavigate={navigate}
           currentScreen={screen}
           settings={settings}
@@ -271,7 +336,7 @@ export default function App() {
               settings={settings}
               onNavigate={navigate}
               onEditTransaction={handleEditTransaction}
-              onOpenSidePanel={() => setSidePanelOpen(true)}
+              onOpenSidePanel={handleOpenSidePanel}
             />
           )}
           {screen === "transactions" && <Transactions settings={settings} onEditTransaction={handleEditTransaction} onNavigate={navigate} />}
@@ -292,18 +357,18 @@ export default function App() {
               settings={settings}
               editId={editTransactionId}
               onDone={() => navigate("transactions")}
-              onCancel={() => navigate("dashboard")}
+              onCancel={goBack}
             />
           )}
           {screen === "add-ai" && (
-            <AddWithAI settings={settings} onDone={() => navigate("transactions")} onCancel={() => navigate("dashboard")} />
+            <AddWithAI settings={settings} onDone={() => navigate("transactions")} onCancel={goBack} />
           )}
           {screen === "add-recurring" && (
             <AddRecurring
               settings={settings}
               editId={editRecurringId}
               onDone={() => navigate("recurring")}
-              onCancel={() => navigate("recurring")}
+              onCancel={goBack}
             />
           )}
         </main>
