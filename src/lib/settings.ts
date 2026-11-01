@@ -28,6 +28,17 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   cachedSettings = settings;
 }
 
+export async function updateSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
+  const current = await loadSettings();
+  const merged: AppSettings = {
+    ...current,
+    ...partial,
+    googleSync: partial.googleSync ? { ...(current.googleSync || DEFAULT_SETTINGS.googleSync), ...partial.googleSync } : current.googleSync,
+  };
+  await saveSettings(merged);
+  return merged;
+}
+
 export function getCachedSettings(): AppSettings {
   return cachedSettings ?? DEFAULT_SETTINGS;
 }
