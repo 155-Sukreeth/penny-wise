@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, Calendar, Sparkles, ChevronRight, AlertCircle } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { TAG_COLORS, TAGS, type TagType } from "@/types";
-import { fetchTransactions, fetchCategories, fetchRecurringTransactions, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, formatCurrencyWithSign, getPeriodBounds, periodLabel, relativeDate, getMonthBounds, getLastMonthBounds, formatDate, getTodayString } from "@/lib/format";
+import { fetchTransactions, fetchRecurringTransactions, type TransactionWithNames } from "@/lib/data";
+import { formatCurrency, formatCurrencyWithSign, getPeriodBounds, periodLabel, formatActivityDate, getMonthBounds, getLastMonthBounds, formatDate, getTodayString } from "@/lib/format";
 import { DonutChart } from "@/components/charts/DonutChart";
 import { BarChart } from "@/components/charts/BarChart";
 import { LineChart } from "@/components/charts/LineChart";
@@ -509,7 +509,7 @@ export function Dashboard({ settings, onNavigate, onEditTransaction, onOpenSideP
                     <span className="text-xs text-gray-400 block truncate">
                       {stats.largest.notes?.trim()
                         ? `${stats.largest.category_name || "Uncategorized"}${stats.largest.merchant ? ` · ${stats.largest.merchant}` : ""}`
-                        : `${stats.largest.merchant ? `${stats.largest.merchant} · ` : ""}${stats.largest.category_name || "Uncategorized"}`} · {relativeDate(stats.largest.date)}
+                        : `${stats.largest.merchant ? `${stats.largest.merchant} · ` : ""}${stats.largest.category_name || "Uncategorized"}`} · {formatActivityDate(stats.largest.date)}
                     </span>
                   </div>
                 </div>
@@ -540,7 +540,7 @@ export function Dashboard({ settings, onNavigate, onEditTransaction, onOpenSideP
                       <span className="text-xs text-gray-400 block truncate">
                         {t.notes?.trim()
                           ? `${t.category_name || "Uncategorized"}${t.merchant ? ` · ${t.merchant}` : ""}`
-                          : `${t.merchant ? `${t.merchant} · ` : ""}${t.category_name || "Uncategorized"}`} · {relativeDate(t.date)}
+                          : `${t.merchant ? `${t.merchant} · ` : ""}${t.category_name || "Uncategorized"}`} · {formatActivityDate(t.date)}
                       </span>
                     </div>
                   </div>

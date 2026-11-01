@@ -84,7 +84,10 @@ export interface Budget {
 export enum RecurringFrequency {
   Daily = "daily",
   Weekly = "weekly",
+  Biweekly = "biweekly",
   Monthly = "monthly",
+  Quarterly = "quarterly",
+  Semiannually = "semiannually",
   Yearly = "yearly",
   Custom = "custom",
 }

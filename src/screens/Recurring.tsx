@@ -6,7 +6,7 @@ import {
   deleteRecurringTransaction, fetchCategories, createTransaction,
   skipRecurringTransaction
 } from "@/lib/data";
-import { formatCurrency, formatDate, getTodayString, relativeDate, calculateNextDate } from "@/lib/format";
+import { formatCurrency, formatDate, getTodayString, relativeDate, calculateNextDate, formatFrequency } from "@/lib/format";
 import { scheduleRecurringReminder, cancelRecurringReminder } from "@/lib/recurringReminders";
 import { checkNotificationPermissions, requestNotificationPermissions } from "@/lib/notifications";
 import { loadSettings, saveSettings } from "@/lib/settings";
@@ -290,7 +290,7 @@ export function Recurring({
                               {r.merchant || cat?.name || "Recurring"}
                             </h3>
                             <p className="text-xs text-gray-400">
-                              {cat?.name || "Uncategorized"} · <span className="capitalize">{r.frequency}</span>
+                              {cat?.name || "Uncategorized"} · <span>{formatFrequency(r.frequency, r.custom_days)}</span>
                             </p>
                           </div>
                         </div>
@@ -378,7 +378,7 @@ export function Recurring({
                           </div>
                           <div className="min-w-0">
                             <h3 className="text-sm font-semibold text-gray-900 truncate">{r.merchant || cat?.name || "Recurring"}</h3>
-                            <p className="text-xs text-gray-400">{cat?.name || "Uncategorized"} · <span className="capitalize">{r.frequency}</span></p>
+                            <p className="text-xs text-gray-400">{cat?.name || "Uncategorized"} · <span>{formatFrequency(r.frequency, r.custom_days)}</span></p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">

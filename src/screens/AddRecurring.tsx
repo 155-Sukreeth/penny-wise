@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { X, ArrowDownLeft, ArrowUpRight, Bell, Calendar, Tag as TagIcon, CreditCard, Clock } from "lucide-react";
+import { X, ArrowDownLeft, ArrowUpRight, Bell, Tag as TagIcon } from "lucide-react";
 import type { AppSettings, Category } from "@/types";
 import { TransactionType, TagType, RecurringFrequency, TAGS, TAG_BG_COLORS } from "@/types";
 import {
@@ -28,6 +28,8 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
   const [notes, setNotes] = useState("");
   const [tag, setTag] = useState<TagType>(TagType.Need);
   const [frequency, setFrequency] = useState<RecurringFrequency>(RecurringFrequency.Monthly);
+  const [customDays, setCustomDays] = useState<number>(30);
+  const [customUnit, setCustomUnit] = useState<"days" | "weeks" | "months">("days");
   const [startDate, setStartDate] = useState(getTodayString());
   const [nextDueDate, setNextDueDate] = useState(getTodayString());
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -61,6 +63,18 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
           setNotes(item.notes || "");
           setTag(item.tag);
           setFrequency(item.frequency);
+          if (item.custom_days) {
+            if (item.custom_days % 30 === 0) {
+              setCustomDays(item.custom_days / 30);
+              setCustomUnit("months");
+            } else if (item.custom_days % 7 === 0) {
+              setCustomDays(item.custom_days / 7);
+              setCustomUnit("weeks");
+            } else {
+              setCustomDays(item.custom_days);
+              setCustomUnit("days");
+            }
+          }
           setStartDate(item.start_date);
           setNextDueDate(item.next_date || item.start_date);
           setNotificationsEnabled(item.notifications_enabled);
@@ -123,6 +137,13 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
     setNotificationsEnabled(val);
   };
 
+  const effectiveCustomDays = useMemo(() => {
+    const val = Math.max(1, customDays || 1);
+    if (customUnit === "weeks") return val * 7;
+    if (customUnit === "months") return val * 30;
+    return val;
+  }, [customDays, customUnit]);
+
   const handleSave = async () => {
     const amt = parseInputAmount(amount);
     if (!amt || amt <= 0 || !categoryId) return;
@@ -159,6 +180,7 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
           notes: notes.trim() || null,
           tag,
           frequency,
+          custom_days: frequency === RecurringFrequency.Custom ? effectiveCustomDays : null,
           start_date: startDate,
           next_date: nextDueDate || startDate,
           notifications_enabled: notificationsEnabled,
@@ -186,6 +208,7 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
           notes: notes.trim() || null,
           tag,
           frequency,
+          custom_days: frequency === RecurringFrequency.Custom ? effectiveCustomDays : null,
           start_date: startDate,
           next_date: firstDueDate,
           notifications_enabled: notificationsEnabled,
@@ -341,12 +364,16 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
               <select
                 value={frequency}
                 onChange={e => setFrequency(e.target.value as RecurringFrequency)}
-                className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 capitalize font-medium"
+                className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium"
               >
                 <option value={RecurringFrequency.Daily}>Daily</option>
                 <option value={RecurringFrequency.Weekly}>Weekly</option>
+                <option value={RecurringFrequency.Biweekly}>Bi-weekly (2 weeks)</option>
                 <option value={RecurringFrequency.Monthly}>Monthly</option>
+                <option value={RecurringFrequency.Quarterly}>Quarterly (3 months)</option>
+                <option value={RecurringFrequency.Semiannually}>Semi-annually (6 months)</option>
                 <option value={RecurringFrequency.Yearly}>Yearly</option>
+                <option value={RecurringFrequency.Custom}>Custom Interval...</option>
               </select>
             </div>
 
@@ -369,6 +396,34 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
               />
             </div>
           </div>
+
+          {frequency === RecurringFrequency.Custom && (
+            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 animate-in fade-in">
+              <label className="text-xs text-gray-600 font-medium block mb-1.5">Repeat Every</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  max="999"
+                  value={customDays}
+                  onChange={e => setCustomDays(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-24 px-3 py-2 bg-white rounded-lg text-sm border border-gray-200 outline-none font-semibold text-center"
+                />
+                <select
+                  value={customUnit}
+                  onChange={e => setCustomUnit(e.target.value as "days" | "weeks" | "months")}
+                  className="flex-1 px-3 py-2 bg-white rounded-lg text-sm border border-gray-200 outline-none font-medium"
+                >
+                  <option value="days">Day{customDays !== 1 ? "s" : ""}</option>
+                  <option value="weeks">Week{customDays !== 1 ? "s" : ""}</option>
+                  <option value="months">Month{customDays !== 1 ? "s" : ""}</option>
+                </select>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Recurs every {customDays} {customUnit === "days" ? (customDays === 1 ? "day" : "days") : customUnit === "weeks" ? (customDays === 1 ? "week" : "weeks") : (customDays === 1 ? "month" : "months")}{customUnit !== "days" ? ` (${effectiveCustomDays} days)` : ""}.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-gray-500 font-medium block mb-2">Payment Account</label>

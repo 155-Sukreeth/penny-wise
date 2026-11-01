@@ -26,9 +26,18 @@ export function getFrequencyIntervalDays(
     case "weekly":
     case RecurringFrequency.Weekly:
       return 7;
+    case "biweekly":
+    case RecurringFrequency.Biweekly:
+      return 14;
     case "monthly":
     case RecurringFrequency.Monthly:
       return 28; // safe minimum for days in a month
+    case "quarterly":
+    case RecurringFrequency.Quarterly:
+      return 90;
+    case "semiannually":
+    case RecurringFrequency.Semiannually:
+      return 180;
     case "yearly":
     case RecurringFrequency.Yearly:
       return 365;

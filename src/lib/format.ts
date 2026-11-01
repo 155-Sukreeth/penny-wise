@@ -129,9 +129,10 @@ export function getLastMonthBounds(date: Date = new Date()): { start: string; en
 
 export function getPeriodBounds(period: string): { start: string; end: string } {
   switch (period) {
-    case "today":
+    case "today": {
       const t = getTodayString();
       return { start: t, end: t };
+    }
     case "week":
       return getWeekBounds();
     case "month":
@@ -191,22 +192,69 @@ export function relativeDate(dateStr: string): string {
   }
 
   // Past dates
-  const pastDays = Math.abs(diffDays);
-  if (pastDays === 1) return "Yesterday";
-  if (pastDays < 7) return `${pastDays} days ago`;
-  if (pastDays < 30) return `${Math.floor(pastDays / 7)}w ago`;
-  if (pastDays < 365) return `${Math.floor(pastDays / 30)}mo ago`;
-  return `${Math.floor(pastDays / 365)}y ago`;
+  return formatActivityDate(dateStr);
+}
+
+/**
+ * Format date for Activity / Transactions daily section headers.
+ * Formats like "28 July, Monday" instead of relative "2w ago".
+ * Retains "Today · " and "Yesterday · " prefixes for immediate orientation.
+ */
+export function formatActivityDate(dateStr: string): string {
+  const date = new Date(dateStr + (dateStr.length === 10 ? "T00:00:00" : ""));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  const day = date.getDate();
+  const month = date.toLocaleDateString("en-US", { month: "long" });
+  const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
+  const isCurrentYear = date.getFullYear() === today.getFullYear();
+  const dateFormatted = isCurrentYear
+    ? `${day} ${month}, ${weekday}`
+    : `${day} ${month} ${date.getFullYear()}, ${weekday}`;
+
+  if (diffDays === 0) return `Today · ${dateFormatted}`;
+  if (diffDays === -1) return `Yesterday · ${dateFormatted}`;
+  return dateFormatted;
 }
 
 export function calculateNextDate(from: string, frequency: string, customDays?: number): string {
   const d = new Date(from + (from.length === 10 ? "T00:00:00" : ""));
   if (frequency === "daily") d.setDate(d.getDate() + 1);
   else if (frequency === "weekly") d.setDate(d.getDate() + 7);
+  else if (frequency === "biweekly") d.setDate(d.getDate() + 14);
   else if (frequency === "monthly") d.setMonth(d.getMonth() + 1);
+  else if (frequency === "quarterly") d.setMonth(d.getMonth() + 3);
+  else if (frequency === "semiannually") d.setMonth(d.getMonth() + 6);
   else if (frequency === "yearly") d.setFullYear(d.getFullYear() + 1);
-  else if (frequency === "custom" && customDays) d.setDate(d.getDate() + customDays);
+  else if (frequency === "custom" && customDays) d.setDate(d.getDate() + Math.max(1, customDays));
   else d.setDate(d.getDate() + 7);
   return formatLocalDate(d);
+}
+
+export function formatFrequency(frequency: string, customDays?: number | null): string {
+  switch (frequency) {
+    case "daily":
+      return "Daily";
+    case "weekly":
+      return "Weekly";
+    case "biweekly":
+      return "Bi-weekly";
+    case "monthly":
+      return "Monthly";
+    case "quarterly":
+      return "Quarterly";
+    case "semiannually":
+      return "Semi-annually";
+    case "yearly":
+      return "Yearly";
+    case "custom":
+      return customDays && customDays > 1 ? `Every ${customDays} days` : "Every day";
+    default:
+      return frequency || "Monthly";
+  }
 }
 
