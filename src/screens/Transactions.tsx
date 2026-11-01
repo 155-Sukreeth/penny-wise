@@ -3,7 +3,7 @@ import { Search, SlidersHorizontal, X, ArrowUpRight, ArrowDownRight, Trash2, Che
 import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, deleteTransaction, bulkDeleteTransactions, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, relativeDate, getMonthBounds } from "@/lib/format";
+import { formatCurrency, formatActivityDate, getMonthBounds } from "@/lib/format";
 import type { ScreenName } from "@/App";
 
 interface TransactionsProps {
@@ -383,7 +383,7 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
           {grouped.map(([date, txs]) => (
             <div key={date}>
               <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-xs font-medium text-gray-400">{relativeDate(date)}</span>
+                <span className="text-xs font-medium text-gray-400">{formatActivityDate(date)}</span>
                 <span className="text-xs text-gray-300">{formatCurrency(txs.reduce((s, t) => s + (t.type === "outflow" ? Number(t.amount) : -Number(t.amount)), 0), settings)}</span>
               </div>
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">

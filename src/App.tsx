@@ -412,7 +412,7 @@ function BottomNav({ current, onNavigate }: { current: ScreenName; onNavigate: (
       <div className="flex items-center justify-center px-1 flex-shrink-0 -mt-5">
         <button
           onClick={() => onNavigate("add-transaction")}
-          className="w-13 h-13 p-3.5 bg-gray-900 text-white rounded-full shadow-lg shadow-gray-900/25 border-4 border-gray-50 flex items-center justify-center active:scale-90 transition-all hover:bg-black focus:outline-none"
+          className="w-14 h-14 p-3.5 bg-gray-900 text-white rounded-full shadow-lg shadow-gray-900/25 border-4 border-gray-50 flex items-center justify-center active:scale-90 transition-all hover:bg-black focus:outline-none"
           aria-label="Add transaction"
           title="Add Transaction"
         >
