@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, X, Trash2, AlertTriangle, Check, PiggyBank } from "lucide-react";
+import { Select } from "@/components/Select";
 import type { AppSettings, Category, Budget } from "@/types";
 import { BudgetType, BudgetPeriod } from "@/types";
 import { fetchBudgets, createBudget, updateBudget, deleteBudget, fetchCategories, fetchTransactions } from "@/lib/data";
@@ -249,15 +250,17 @@ export function Budgets({ settings }: { settings: AppSettings }) {
 
               {addType === BudgetType.Category && (
                 <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-2">Category</label>
-                  <select
+                  <Select
+                    label="Category"
                     value={addCategoryId || ""}
-                    onChange={e => setAddCategoryId(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100"
-                  >
-                    <option value="">Select category</option>
-                    {outflowCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                    onChange={v => setAddCategoryId(v || null)}
+                    title="Select Budget Category"
+                    placeholder="Select category"
+                    options={[
+                      { value: "", label: "Select category" },
+                      ...outflowCategories.map(c => ({ value: c.id, label: c.name })),
+                    ]}
+                  />
                 </div>
               )}
 

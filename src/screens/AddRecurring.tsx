@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { X, ArrowDownLeft, ArrowUpRight, Bell, Tag as TagIcon } from "lucide-react";
+import { Select } from "@/components/Select";
 import type { AppSettings, Category } from "@/types";
 import { TransactionType, TagType, RecurringFrequency, TAGS, TAG_BG_COLORS } from "@/types";
 import {
@@ -360,21 +361,22 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-500 font-medium block mb-2">Frequency</label>
-              <select
+              <Select
+                label="Frequency"
                 value={frequency}
-                onChange={e => setFrequency(e.target.value as RecurringFrequency)}
-                className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium"
-              >
-                <option value={RecurringFrequency.Daily}>Daily</option>
-                <option value={RecurringFrequency.Weekly}>Weekly</option>
-                <option value={RecurringFrequency.Biweekly}>Bi-weekly (2 weeks)</option>
-                <option value={RecurringFrequency.Monthly}>Monthly</option>
-                <option value={RecurringFrequency.Quarterly}>Quarterly (3 months)</option>
-                <option value={RecurringFrequency.Semiannually}>Semi-annually (6 months)</option>
-                <option value={RecurringFrequency.Yearly}>Yearly</option>
-                <option value={RecurringFrequency.Custom}>Custom Interval...</option>
-              </select>
+                onChange={v => setFrequency(v as RecurringFrequency)}
+                title="Select Frequency"
+                options={[
+                  { value: RecurringFrequency.Daily, label: "Daily" },
+                  { value: RecurringFrequency.Weekly, label: "Weekly" },
+                  { value: RecurringFrequency.Biweekly, label: "Bi-weekly (2 weeks)" },
+                  { value: RecurringFrequency.Monthly, label: "Monthly" },
+                  { value: RecurringFrequency.Quarterly, label: "Quarterly (3 months)" },
+                  { value: RecurringFrequency.Semiannually, label: "Semi-annually (6 months)" },
+                  { value: RecurringFrequency.Yearly, label: "Yearly" },
+                  { value: RecurringFrequency.Custom, label: "Custom Interval..." },
+                ]}
+              />
             </div>
 
             <div>
@@ -392,7 +394,7 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
                     setNextDueDate(e.target.value);
                   }
                 }}
-                className="w-full px-3 py-2 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium"
+                className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium"
               />
             </div>
           </div>
@@ -409,15 +411,20 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
                   onChange={e => setCustomDays(Math.max(1, parseInt(e.target.value) || 1))}
                   className="w-24 px-3 py-2 bg-white rounded-lg text-sm border border-gray-200 outline-none font-semibold text-center"
                 />
-                <select
-                  value={customUnit}
-                  onChange={e => setCustomUnit(e.target.value as "days" | "weeks" | "months")}
-                  className="flex-1 px-3 py-2 bg-white rounded-lg text-sm border border-gray-200 outline-none font-medium"
-                >
-                  <option value="days">Day{customDays !== 1 ? "s" : ""}</option>
-                  <option value="weeks">Week{customDays !== 1 ? "s" : ""}</option>
-                  <option value="months">Month{customDays !== 1 ? "s" : ""}</option>
-                </select>
+                <div className="flex-1">
+                  <Select
+                    value={customUnit}
+                    onChange={v => setCustomUnit(v as "days" | "weeks" | "months")}
+                    title="Repeat Unit"
+                    searchable={false}
+                    variant="compact"
+                    options={[
+                      { value: "days", label: `Day${customDays !== 1 ? "s" : ""}` },
+                      { value: "weeks", label: `Week${customDays !== 1 ? "s" : ""}` },
+                      { value: "months", label: `Month${customDays !== 1 ? "s" : ""}` },
+                    ]}
+                  />
+                </div>
               </div>
               <p className="text-[11px] text-gray-400 mt-1.5">
                 Recurs every {customDays} {customUnit === "days" ? (customDays === 1 ? "day" : "days") : customUnit === "weeks" ? (customDays === 1 ? "week" : "weeks") : (customDays === 1 ? "month" : "months")}{customUnit !== "days" ? ` (${effectiveCustomDays} days)` : ""}.
@@ -426,17 +433,17 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
           )}
 
           <div>
-            <label className="text-xs text-gray-500 font-medium block mb-2">Payment Account</label>
-            <select
+            <Select
+              label="Payment Account"
               value={accountId || ""}
-              onChange={e => setAccountId(e.target.value || null)}
-              className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm outline-none border border-gray-100 font-medium"
-            >
-              <option value="">Unspecified</option>
-              {accounts.map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
+              onChange={v => setAccountId(v || null)}
+              title="Select Payment Account"
+              placeholder="Unspecified"
+              options={[
+                { value: "", label: "Unspecified" },
+                ...accounts.map(a => ({ value: a.id, label: a.name })),
+              ]}
+            />
           </div>
 
           <div>

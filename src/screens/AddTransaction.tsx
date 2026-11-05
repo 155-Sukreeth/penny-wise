@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { X, ArrowDownLeft, ArrowUpRight, Check, Tag as TagIcon } from "lucide-react";
+import { Select } from "@/components/Select";
 import type { AppSettings, Category } from "@/types";
 import { TransactionType, TagType, TAGS, TAG_BG_COLORS } from "@/types";
 import {
@@ -276,15 +277,18 @@ export function AddTransaction({ settings, editId, onDone, onCancel }: AddTransa
           </div>
 
           <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-            <label className="text-xs text-gray-500 font-medium block mb-2">Payment Method</label>
-            <select
+            <Select
+              label="Payment Method"
               value={accountId || ""}
-              onChange={e => setAccountId(e.target.value || null)}
-              className="w-full text-sm text-gray-900 bg-transparent outline-none font-medium"
-            >
-              <option value="">Unspecified</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+              onChange={v => setAccountId(v || null)}
+              title="Select Payment Method"
+              placeholder="Unspecified"
+              variant="transparent"
+              options={[
+                { value: "", label: "Unspecified" },
+                ...accounts.map(a => ({ value: a.id, label: a.name })),
+              ]}
+            />
           </div>
         </div>
 

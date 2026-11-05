@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Search, SlidersHorizontal, X, ArrowUpRight, ArrowDownRight, Trash2, CheckSquare, Square, ChevronDown, ChevronLeft, ChevronRight, Plus, AlertCircle, Loader } from "lucide-react";
+import { Select } from "@/components/Select";
 import type { AppSettings, TransactionType, TagType, Category } from "@/types";
 import { TAGS, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, deleteTransaction, bulkDeleteTransactions, type TransactionWithNames } from "@/lib/data";
@@ -314,25 +315,31 @@ export function Transactions({ settings, onEditTransaction, onNavigate }: Transa
           </div>
           <div>
             <label className="text-xs text-gray-500 font-medium block mb-1.5">Category</label>
-            <select
+            <Select
               value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100"
-            >
-              <option value="">All categories</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-            </select>
+              onChange={setFilterCategory}
+              title="Filter by Category"
+              placeholder="All categories"
+              variant="compact"
+              options={[
+                { value: "", label: "All categories" },
+                ...categories.map(c => ({ value: c.id, label: `${c.name} (${c.type})` })),
+              ]}
+            />
           </div>
           <div>
             <label className="text-xs text-gray-500 font-medium block mb-1.5">Payment Method</label>
-            <select
+            <Select
               value={filterAccount}
-              onChange={e => setFilterAccount(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border border-gray-100"
-            >
-              <option value="">All methods</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+              onChange={setFilterAccount}
+              title="Filter by Payment Method"
+              placeholder="All methods"
+              variant="compact"
+              options={[
+                { value: "", label: "All methods" },
+                ...accounts.map(a => ({ value: a.id, label: a.name })),
+              ]}
+            />
           </div>
           <div>
             <label className="text-xs text-gray-500 font-medium block mb-1.5">Tag</label>
