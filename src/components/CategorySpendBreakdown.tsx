@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { ChevronRight, Calendar } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronUp, Calendar } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { formatCurrency } from "@/lib/format";
 import type { TransactionWithNames } from "@/lib/data";
@@ -106,8 +106,12 @@ export function CategorySpendBreakdown({
         </span>
       </div>
 
-      {/* Category Rows */}
-      <div className="divide-y divide-gray-100/90">
+      {/* Category Rows: constrained to max-h-[460px] with slim scroll when expanded */}
+      <div
+        className={`divide-y divide-gray-100/90 transition-all duration-300 ${
+          showAll ? "max-h-[460px] overflow-y-auto slim-scrollbar pr-1.5" : ""
+        }`}
+      >
         {displayedGroups.map((group, index) => {
           const rank = String(index + 1).padStart(2, "0");
           const sharePct = totalAmount > 0 ? Math.round((group.total / totalAmount) * 100) : 0;
@@ -171,12 +175,12 @@ export function CategorySpendBreakdown({
               {/* Expanded Transactions Drill-down */}
               {isExpanded && (
                 <div className="mt-3 pt-3 border-t border-gray-100 animate-in fade-in slide-in-from-top-1 duration-150">
-                  {/* Gray Banner Header */}
+                  {/* Gray Banner Header with Count Context */}
                   <div className="flex items-center justify-between px-3.5 py-2 mb-2 bg-[#f1f5f9] border border-slate-200/60 rounded-xl">
                     <span className="text-xs font-semibold text-slate-800 truncate">
                       In {group.name}{" "}
                       <span className="font-normal text-slate-500">
-                        ({sortTxBy === "amount" ? "Ranked highest" : "Most recent"})
+                        ({group.count} {group.count === 1 ? "txn" : "txns"} · {sortTxBy === "amount" ? "Ranked highest" : "Most recent"})
                       </span>
                     </span>
                     <div className="flex items-center gap-1.5 text-xs text-slate-400 flex-shrink-0">
@@ -216,7 +220,7 @@ export function CategorySpendBreakdown({
                   </div>
 
                   {/* Transaction rows with single continuous grey timeline */}
-                  <div className="max-h-64 overflow-y-auto slim-scrollbar">
+                  <div className="max-h-56 overflow-y-auto slim-scrollbar pr-1">
                     {sortedTransactions.map((tx) => (
                       <div
                         key={tx.id}
@@ -274,9 +278,13 @@ export function CategorySpendBreakdown({
           className="w-full mt-3 py-2.5 bg-gray-50 hover:bg-gray-100 rounded-xl text-xs font-semibold text-gray-600 flex items-center justify-center gap-1.5 transition-colors"
         >
           {showAll ? (
-            <>Show Top {initialLimit} Only</>
+            <>
+              Show Top {initialLimit} Only <ChevronUp size={14} />
+            </>
           ) : (
-            <>Show All {groups.length} Categories ({groups.length - initialLimit} more)</>
+            <>
+              Show All {groups.length} Categories ({groups.length - initialLimit} more) <ChevronDown size={14} />
+            </>
           )}
         </button>
       )}
