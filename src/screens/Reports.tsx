@@ -56,8 +56,8 @@ export function Reports({ settings }: { settings: AppSettings }) {
       setTransactions(txs);
       setPriceHikes(hikes);
       setSafeToSpend(s2s);
-      setActiveSubscriptions(recs.filter(r => r.is_active && (!r.sub_type || r.sub_type === RecurringSubType.Subscription)));
-      setActiveInvestments(recs.filter(r => r.is_active && r.sub_type === RecurringSubType.Investment));
+      setActiveSubscriptions(recs.filter(r => r.is_active && r.type === "outflow" && (!r.sub_type || r.sub_type === RecurringSubType.Subscription)));
+      setActiveInvestments(recs.filter(r => r.is_active && r.type === "outflow" && r.sub_type === RecurringSubType.Investment));
       setLoading(false);
     });
   }, [period]);

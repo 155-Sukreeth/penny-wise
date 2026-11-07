@@ -338,13 +338,20 @@ export async function restoreFullDatabaseSnapshot(
         accId = accIdAliasMap.get(accId) || null;
       }
 
+      let resolvedSubType = rawR.sub_type;
+      if (rawR.type === "inflow") {
+        resolvedSubType = undefined;
+      } else if (!resolvedSubType) {
+        resolvedSubType = "subscription";
+      }
+
       primaryRecurring.push({
         ...rawR,
         id: rId,
         category_id: catId,
         account_id: accId,
         amount: Number(rawR.amount) || 0,
-        sub_type: rawR.sub_type || "subscription",
+        sub_type: resolvedSubType,
         is_active: rawR.is_active ?? true,
         notifications_enabled: Boolean(rawR.notifications_enabled),
       });

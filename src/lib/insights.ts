@@ -119,7 +119,7 @@ export async function detectPriceHikes(): Promise<PriceHikeAlert[]> {
   ]);
 
   const activeSubscriptions = recurring.filter(
-    (r) => r.is_active && (!r.sub_type || r.sub_type === RecurringSubType.Subscription) && r.merchant
+    (r) => r.is_active && r.type === "outflow" && (!r.sub_type || r.sub_type === RecurringSubType.Subscription) && r.merchant
   );
 
   const alerts: PriceHikeAlert[] = [];

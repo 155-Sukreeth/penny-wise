@@ -50,7 +50,9 @@ export class PennyWiseDatabase extends Dexie {
       recurring_transactions: "id, type, frequency, next_date, is_active, sub_type",
     }).upgrade((tx) => {
       return tx.table("recurring_transactions").toCollection().modify((item) => {
-        if (!item.sub_type) {
+        if (item.type === "inflow") {
+          delete item.sub_type;
+        } else if (!item.sub_type) {
           item.sub_type = "subscription";
         }
       });
@@ -107,10 +109,26 @@ export class PennyWiseDatabase extends Dexie {
 
 export const db = new PennyWiseDatabase();
 
+let hasCleanedRecurringInflows = false;
+
 // Ensure seeds exist even if populate hook already passed on an existing empty db
 export async function ensureInitialized() {
   const catCount = await db.categories.count();
   if (catCount === 0) {
     await db.seedInitialData();
+  }
+
+  if (!hasCleanedRecurringInflows) {
+    hasCleanedRecurringInflows = true;
+    try {
+      await db.recurring_transactions
+        .where("type")
+        .equals("inflow")
+        .modify((item) => {
+          delete item.sub_type;
+        });
+    } catch {
+      // Ignore if table not yet initialized
+    }
   }
 }
