@@ -1,19 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
-import { FileBarChart, Download, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, ChevronRight, Check, Loader } from "lucide-react";
-import type { AppSettings, Category, TagType } from "@/types";
+import { FileBarChart, Download, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Check, Loader } from "lucide-react";
+import type { AppSettings, TagType } from "@/types";
 import { TAGS, TAG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchBudgets, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, formatCurrencyWithSign, getMonthBounds, getYearBounds, getPeriodBounds, periodLabel, formatDate } from "@/lib/format";
+import { formatCurrency, formatCurrencyWithSign, getMonthBounds, getPeriodBounds, periodLabel } from "@/lib/format";
 import { exportFile } from "@/lib/exportUtils";
-import { DonutChart } from "@/components/charts/DonutChart";
+import { CategorySpendBreakdown } from "@/components/CategorySpendBreakdown";
 import { BarChart } from "@/components/charts/BarChart";
 import { LineChart } from "@/components/charts/LineChart";
-
-const CATEGORY_COLORS = [
-  "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-  "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1",
-  "#14b8a6", "#e11d48", "#a855f7", "#0ea5e9",
-];
 
 type ReportTab = "summary" | "income" | "expense" | "category" | "payment" | "merchant" | "tag" | "budget";
 
@@ -32,12 +26,7 @@ export function Reports({ settings }: { settings: AppSettings }) {
   const [tab, setTab] = useState<ReportTab>("summary");
   const [period, setPeriod] = useState("month");
   const [transactions, setTransactions] = useState<TransactionWithNames[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchCategories().then(setCategories);
-  }, []);
 
   useEffect(() => {
     const { start, end } = getPeriodBounds(period);
@@ -287,56 +276,29 @@ export function Reports({ settings }: { settings: AppSettings }) {
                 <StatCard label="Total Income" value={formatCurrency(stats.totalInflow, settings)} icon={<TrendingUp size={16} className="text-emerald-600" />} bg="bg-emerald-50" />
                 <StatCard label="Avg per Tx" value={formatCurrency(stats.avgInflow, settings)} icon={<ArrowUpRight size={16} className="text-gray-700" />} bg="bg-gray-100" />
               </div>
-              <Card title="Income by Category">
-                <div className="flex items-center justify-center mb-4">
-                  <DonutChart
-                    data={categoryData.filter(c => c.inflow > 0).map((c, i) => ({ label: c.name, value: c.inflow, color: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }))}
-                    centerValue={formatCurrency(stats.totalInflow, settings)}
-                    centerLabel="Income"
-                  />
-                </div>
-                <div className="space-y-2">
-                  {categoryData.filter(c => c.inflow > 0).map((c, i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }} />
-                        <span className="text-sm text-gray-700">{c.name}</span>
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">{formatCurrency(c.inflow, settings)}</span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
+              <CategorySpendBreakdown
+                transactions={transactions}
+                type="inflow"
+                settings={settings}
+                title="Income by Category"
+                subtitle="Ranked inflow distribution & drill-down"
+              />
             </>
           )}
 
           {tab === "expense" && (
             <>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <StatCard label="Total Expense" value={formatCurrency(stats.totalOutflow, settings)} icon={<TrendingDown size={16} className="text-red-500" />} bg="bg-red-50" />
                 <StatCard label="Avg per Tx" value={formatCurrency(stats.avgOutflow, settings)} icon={<ArrowDownRight size={16} className="text-gray-700" />} bg="bg-gray-100" />
               </div>
-              <Card title="Expense by Category">
-                <div className="flex items-center justify-center mb-4">
-                  <DonutChart
-                    data={categoryData.filter(c => c.outflow > 0).map((c, i) => ({ label: c.name, value: c.outflow, color: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }))}
-                    centerValue={formatCurrency(stats.totalOutflow, settings)}
-                    centerLabel="Expenses"
-                  />
-                </div>
-                <div className="space-y-2">
-                  {categoryData.filter(c => c.outflow > 0).sort((a, b) => b.outflow - a.outflow).map((c, i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }} />
-                        <span className="text-sm text-gray-700 truncate">{c.name}</span>
-                        <span className="text-xs text-gray-400">({c.count})</span>
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">{formatCurrency(c.outflow, settings)}</span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
+              <CategorySpendBreakdown
+                transactions={transactions}
+                type="outflow"
+                settings={settings}
+                title="Expense by Category"
+                subtitle="Ranked outflow distribution & drill-down"
+              />
               <Card title="Daily Spending Trend">
                 <LineChart data={monthlyTrend} height={160} color="#ef4444" formatValue={v => formatCurrency(v, settings)} />
               </Card>
