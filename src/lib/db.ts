@@ -46,6 +46,16 @@ export class PennyWiseDatabase extends Dexie {
       import_drafts: "id, updated_at",
     });
 
+    this.version(3).stores({
+      recurring_transactions: "id, type, frequency, next_date, is_active, sub_type",
+    }).upgrade((tx) => {
+      return tx.table("recurring_transactions").toCollection().modify((item) => {
+        if (!item.sub_type) {
+          item.sub_type = "subscription";
+        }
+      });
+    });
+
     this.on("populate", () => this.seedInitialData());
   }
 

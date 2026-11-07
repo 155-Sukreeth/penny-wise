@@ -344,6 +344,7 @@ export async function restoreFullDatabaseSnapshot(
         category_id: catId,
         account_id: accId,
         amount: Number(rawR.amount) || 0,
+        sub_type: rawR.sub_type || "subscription",
         is_active: rawR.is_active ?? true,
         notifications_enabled: Boolean(rawR.notifications_enabled),
       });

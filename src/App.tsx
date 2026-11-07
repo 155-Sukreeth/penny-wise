@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Home, ArrowLeftRight, PiggyBank, FileBarChart, Repeat, Download, Plus } from "lucide-react";
+import { Home, ArrowLeftRight, PiggyBank, Lightbulb, Repeat, Download, Plus } from "lucide-react";
 import type { AppSettings } from "@/types";
 import { loadSettings, updateSettings } from "@/lib/settings";
 import { initNotifications, onNotificationAction, onInAppNotification, type AppNotification } from "@/lib/notifications";
@@ -45,7 +45,7 @@ const LEFT_NAV_ITEMS: NavItem[] = [
 ];
 
 const RIGHT_NAV_ITEMS: NavItem[] = [
-  { name: "reports", label: "Reports", icon: FileBarChart },
+  { name: "reports", label: "Insights", icon: Lightbulb },
   { name: "recurring", label: "Recurring", icon: Repeat },
   { name: "import-export", label: "Data", icon: Download },
 ];
