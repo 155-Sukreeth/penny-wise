@@ -4,7 +4,7 @@ import type { AppSettings } from "@/types";
 import { TAG_COLORS, TAGS, type TagType } from "@/types";
 import { fetchTransactions, fetchRecurringTransactions, type TransactionWithNames } from "@/lib/data";
 import { formatCurrency, formatCurrencyWithSign, getPeriodBounds, periodLabel, formatActivityDate, getMonthBounds, getLastMonthBounds, formatDate, getTodayString } from "@/lib/format";
-import { DonutChart } from "@/components/charts/DonutChart";
+import { CategorySpendBreakdown } from "@/components/CategorySpendBreakdown";
 import { BarChart } from "@/components/charts/BarChart";
 import { LineChart } from "@/components/charts/LineChart";
 import type { ScreenName } from "@/App";
@@ -17,12 +17,6 @@ interface DashboardProps {
 }
 
 const PERIODS = ["today", "week", "month", "last_month", "year", "custom"] as const;
-
-const CATEGORY_COLORS = [
-  "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-  "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1",
-  "#14b8a6", "#e11d48", "#a855f7", "#0ea5e9",
-];
 
 export function Dashboard({ settings, onNavigate, onEditTransaction, onOpenSidePanel }: DashboardProps) {
   const [period, setPeriod] = useState<string>("month");
@@ -103,30 +97,6 @@ export function Dashboard({ settings, onNavigate, onEditTransaction, onOpenSideP
       count: transactions.length,
     };
   }, [transactions, period]);
-
-  const categoryBreakdown = useMemo(() => {
-    const map = new Map<string, number>();
-    transactions.filter(t => t.type === "outflow").forEach(t => {
-      const name = t.category_name || "Uncategorized";
-      map.set(name, (map.get(name) || 0) + Number(t.amount));
-    });
-    return Array.from(map.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([label, value], i) => ({ label, value, color: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }));
-  }, [transactions]);
-
-  const inflowBreakdown = useMemo(() => {
-    const map = new Map<string, number>();
-    transactions.filter(t => t.type === "inflow").forEach(t => {
-      const name = t.category_name || "Uncategorized";
-      map.set(name, (map.get(name) || 0) + Number(t.amount));
-    });
-    return Array.from(map.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([label, value], i) => ({ label, value, color: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }));
-  }, [transactions]);
 
   const tagBreakdown = useMemo(() => {
     const map = new Map<TagType, number>();
@@ -402,35 +372,14 @@ export function Dashboard({ settings, onNavigate, onEditTransaction, onOpenSideP
           )}
 
           {/* Category breakdown */}
-          {categoryBreakdown.length > 0 && (
-            <Card title="Spending by Category" subtitle="Outflow distribution">
-              <div className="flex items-center justify-center mb-4">
-                <DonutChart
-                  data={categoryBreakdown}
-                  size={160}
-                  thickness={24}
-                  centerValue={formatCurrency(stats.totalOutflow, settings)}
-                  centerLabel="Total"
-                />
-              </div>
-              <div className="space-y-2">
-                {categoryBreakdown.slice(0, 5).map((c, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.color }} />
-                      <span className="text-sm text-gray-700 truncate">{c.label}</span>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-sm font-medium text-gray-900">{formatCurrency(c.value, settings)}</span>
-                      <span className="text-xs text-gray-400 w-10 text-right">
-                        {stats.totalOutflow > 0 ? ((c.value / stats.totalOutflow) * 100).toFixed(0) : 0}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+          <CategorySpendBreakdown
+            transactions={transactions}
+            type="outflow"
+            settings={settings}
+            onEditTransaction={onEditTransaction}
+            title="Spending by Category"
+            subtitle="Ranked outflow distribution & drill-down"
+          />
 
           {/* Tag breakdown */}
           {tagBreakdown.length > 0 && (
@@ -453,21 +402,14 @@ export function Dashboard({ settings, onNavigate, onEditTransaction, onOpenSideP
           )}
 
           {/* Inflow breakdown */}
-          {inflowBreakdown.length > 0 && (
-            <Card title="Inflow by Category" subtitle="Income sources">
-              <div className="space-y-2">
-                {inflowBreakdown.map((c, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.color }} />
-                      <span className="text-sm text-gray-700 truncate">{c.label}</span>
-                    </div>
-                    <span className="text-sm font-medium text-gray-900">{formatCurrency(c.value, settings)}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+          <CategorySpendBreakdown
+            transactions={transactions}
+            type="inflow"
+            settings={settings}
+            onEditTransaction={onEditTransaction}
+            title="Inflow by Category"
+            subtitle="Ranked income sources & drill-down"
+          />
 
           {/* Top merchants */}
           {topMerchants.length > 0 && (

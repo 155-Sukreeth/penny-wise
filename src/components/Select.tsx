@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+  import React, { useState, useMemo, useRef, useEffect } from "react";
 import { ChevronDown, Search, X, Check } from "lucide-react";
 
 export interface SelectOption<T = string> {
@@ -29,6 +29,7 @@ export function Select<T extends string | number>({
   options,
   label,
   placeholder = "Select...",
+  title,
   searchPlaceholder = "Search options...",
   searchable,
   disabled = false,
@@ -37,9 +38,6 @@ export function Select<T extends string | number>({
 }: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [openUpwards, setOpenUpwards] = useState(false);
-
-  const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = useMemo(
@@ -59,37 +57,10 @@ export function Select<T extends string | number>({
     );
   }, [options, search]);
 
-  // Click outside to close
   useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("touchstart", handleClickOutside);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
-    };
-  }, [isOpen]);
-
-  // Check if dropdown should flip upwards when near bottom of viewport
-  useEffect(() => {
-    if (isOpen && containerRef.current) {
+    if (isOpen) {
       setSearch("");
-      const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      // If less than 240px below and more space above, open upwards
-      setOpenUpwards(spaceBelow < 250 && rect.top > 250);
-
+      // Slight delay for smooth sheet animation before focus
       const timer = setTimeout(() => {
         searchInputRef.current?.focus();
       }, 50);
@@ -127,7 +98,7 @@ export function Select<T extends string | number>({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div className="w-full">
       {label && (
         <label className="text-xs text-gray-500 font-medium block mb-2">
           {label}
@@ -138,10 +109,8 @@ export function Select<T extends string | number>({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={`${getTriggerClass()} ${
-          disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
-        } ${className}`}
+        onClick={() => setIsOpen(true)}
+        className={`${getTriggerClass()} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${className}`}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1 text-left truncate">
           {selectedOption?.icon && (
@@ -165,22 +134,40 @@ export function Select<T extends string | number>({
         />
       </button>
 
-      {/* Inline Floating Dropdown Menu */}
+      {/* Bottom Sheet Modal Dropdown */}
       {isOpen && (
         <div
-          className={`absolute left-0 right-0 z-50 bg-white border border-gray-200/90 rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${
-            openUpwards
-              ? "bottom-full mb-1.5 origin-bottom"
-              : "top-full mt-1.5 origin-top"
-          }`}
+          className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center backdrop-blur-[1px] animate-in fade-in"
+          onClick={() => setIsOpen(false)}
         >
-          {/* Search Bar inside popover */}
-          {showSearch && (
-            <div className="p-2 border-b border-gray-100 bg-gray-50/60">
-              <div className="relative">
+          <div
+            className="bg-white rounded-t-3xl w-full max-w-md p-4 pb-6 shadow-2xl flex flex-col max-h-[82vh] animate-in slide-in-from-bottom duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Sheet Handle */}
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-3 flex-shrink-0" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between pb-2 mb-1 flex-shrink-0 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-900 tracking-tight">
+                {title || label || placeholder}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center transition-colors"
+                title="Close"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Search Bar */}
+            {showSearch && (
+              <div className="relative my-2.5 flex-shrink-0">
                 <Search
-                  size={14}
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+                  size={15}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                 />
                 <input
                   ref={searchInputRef}
@@ -188,7 +175,7 @@ export function Select<T extends string | number>({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={searchPlaceholder}
-                  className="w-full pl-8 pr-7 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400 transition-colors"
+                  className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400 transition-colors"
                 />
                 {search && (
                   <button
@@ -197,74 +184,72 @@ export function Select<T extends string | number>({
                       setSearch("");
                       searchInputRef.current?.focus();
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
                   >
-                    <X size={12} />
+                    <X size={14} />
                   </button>
                 )}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Scrollable Options List with capped height and slim scrollbar */}
-          <div className="overflow-y-auto slim-scrollbar p-1 max-h-56 divide-y divide-gray-50/50">
-            {filteredOptions.length === 0 ? (
-              <div className="py-5 text-center text-xs text-gray-400">
-                No matching options found
-              </div>
-            ) : (
-              filteredOptions.map((opt) => {
-                const isSelected = opt.value === value;
-                return (
-                  <button
-                    key={String(opt.value)}
-                    type="button"
-                    disabled={opt.disabled}
-                    onClick={() => handleSelect(opt.value, opt.disabled)}
-                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left text-xs transition-colors ${
-                      opt.disabled
-                        ? "opacity-40 cursor-not-allowed"
-                        : isSelected
-                        ? "bg-gray-900 text-white font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 active:bg-gray-100"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {opt.icon && (
-                        <span
-                          className={`flex-shrink-0 ${
-                            isSelected ? "text-white" : "text-gray-500"
-                          }`}
-                        >
-                          {opt.icon}
-                        </span>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate">{opt.label}</span>
-                        {opt.sublabel && (
+            {/* Scrollable Options List */}
+            <div className="flex-1 overflow-y-auto slim-scrollbar min-h-0 space-y-1 py-1 pr-0.5 max-h-72">
+              {filteredOptions.length === 0 ? (
+                <div className="py-8 text-center text-xs text-gray-400">
+                  No matching options found
+                </div>
+              ) : (
+                filteredOptions.map((opt) => {
+                  const isSelected = opt.value === value;
+                  return (
+                    <button
+                      key={String(opt.value)}
+                      type="button"
+                      disabled={opt.disabled}
+                      onClick={() => handleSelect(opt.value, opt.disabled)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left text-sm transition-all ${
+                        opt.disabled
+                          ? "opacity-40 cursor-not-allowed"
+                          : isSelected
+                          ? "bg-gray-900 text-white font-semibold shadow-xs"
+                          : "text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        {opt.icon && (
                           <span
-                            className={`text-[10px] block truncate ${
-                              isSelected ? "text-gray-300" : "text-gray-400"
+                            className={`flex-shrink-0 ${
+                              isSelected ? "text-white" : "text-gray-500"
                             }`}
                           >
-                            {opt.sublabel}
+                            {opt.icon}
                           </span>
                         )}
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate">{opt.label}</span>
+                          {opt.sublabel && (
+                            <span
+                              className={`text-[11px] block truncate ${
+                                isSelected ? "text-gray-300" : "text-gray-400"
+                              }`}
+                            >
+                              {opt.sublabel}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {isSelected && (
-                      <Check
-                        size={14}
-                        className="text-white flex-shrink-0 ml-1.5"
-                      />
-                    )}
-                  </button>
-                );
-              })
-            )}
+                      {isSelected && (
+                        <Check size={16} className="text-white flex-shrink-0 ml-2" />
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
+
