@@ -14,6 +14,7 @@ import {
   BudgetType,
   BudgetPeriod,
   RecurringFrequency,
+  RecurringSubType,
 } from "@/types";
 
 export interface TransactionWithNames extends Transaction {
@@ -240,16 +241,22 @@ export async function deleteBudget(id: string): Promise<void> {
   await db.budgets.delete(id);
 }
 
-export async function fetchRecurringTransactions(): Promise<RecurringTransaction[]> {
+export async function fetchRecurringTransactions(opts?: { subType?: RecurringSubType }): Promise<RecurringTransaction[]> {
   await ensureInitialized();
-  return db.recurring_transactions.orderBy("next_date").toArray();
+  const all = await db.recurring_transactions.orderBy("next_date").toArray();
+  if (opts?.subType) {
+    return all.filter((r) => r.type === TransactionType.Outflow && (r.sub_type || RecurringSubType.Subscription) === opts.subType);
+  }
+  return all;
 }
 
 export async function createRecurringTransaction(r: Partial<RecurringTransaction>): Promise<RecurringTransaction> {
   await ensureInitialized();
+  const isOutflow = (r.type || TransactionType.Outflow) === TransactionType.Outflow;
   const newRec: RecurringTransaction = {
     id: r.id || crypto.randomUUID(),
     type: r.type || TransactionType.Outflow,
+    sub_type: isOutflow ? (r.sub_type || RecurringSubType.Subscription) : undefined,
     amount: Number(r.amount) || 0,
     category_id: r.category_id || null,
     account_id: r.account_id || null,

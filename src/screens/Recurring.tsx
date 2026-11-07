@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Plus, Trash2, Repeat, Bell, BellOff, Calendar, Check, ArrowDownLeft, ArrowUpRight, Edit2, AlertCircle, FastForward } from "lucide-react";
 import type { AppSettings, Category, RecurringTransaction } from "@/types";
+import { RecurringSubType } from "@/types";
 import {
   fetchRecurringTransactions, updateRecurringTransaction,
   deleteRecurringTransaction, fetchCategories, createTransaction,
@@ -24,6 +25,7 @@ export function Recurring({
   onOpenAdd,
   onOpenEdit,
 }: RecurringProps) {
+  const [activeTab, setActiveTab] = useState<"all" | RecurringSubType>("all");
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -169,17 +171,22 @@ export function Recurring({
     return Math.max(1, Math.round((today - next) / (1000 * 60 * 60 * 24)));
   };
 
+  const filteredRecurring = useMemo(() => {
+    if (activeTab === "all") return recurring;
+    return recurring.filter(r => r.type === "outflow" && (r.sub_type || RecurringSubType.Subscription) === activeTab);
+  }, [recurring, activeTab]);
+
   const overdueItems = useMemo(() => {
-    return recurring
+    return filteredRecurring
       .filter(r => r.is_active && r.next_date < todayStr)
       .sort((a, b) => a.next_date.localeCompare(b.next_date));
-  }, [recurring, todayStr]);
+  }, [filteredRecurring, todayStr]);
 
   const upcomingItems = useMemo(() => {
-    return recurring
+    return filteredRecurring
       .filter(r => !(r.is_active && r.next_date < todayStr))
       .sort((a, b) => a.next_date.localeCompare(b.next_date));
-  }, [recurring, todayStr]);
+  }, [filteredRecurring, todayStr]);
 
   useEffect(() => {
     if (targetRecurringId && highlightedRef.current) {
@@ -187,9 +194,24 @@ export function Recurring({
     }
   }, [targetRecurringId, recurring]);
 
+  const counts = useMemo(() => {
+    let sub = 0;
+    let inv = 0;
+    let loan = 0;
+    recurring.forEach(r => {
+      if (r.type === "outflow") {
+        const st = r.sub_type || RecurringSubType.Subscription;
+        if (st === RecurringSubType.Investment) inv++;
+        else if (st === RecurringSubType.Loan) loan++;
+        else sub++;
+      }
+    });
+    return { all: recurring.length, sub, inv, loan };
+  }, [recurring]);
+
   return (
     <div className="px-4 pt-6 pb-24">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Recurring</h1>
           <p className="text-sm text-gray-500 mt-0.5">Automated transactions & bills</p>
@@ -200,6 +222,54 @@ export function Recurring({
           aria-label="Add Recurring"
         >
           <Plus size={20} />
+        </button>
+      </div>
+
+      {/* Switch Tabs: Subscriptions | Investments | Loans | All */}
+      <div className="flex gap-1.5 mb-4 overflow-x-auto no-scrollbar -mx-4 px-4">
+        <button
+          type="button"
+          onClick={() => setActiveTab("all")}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTab === "all"
+              ? "bg-gray-900 text-white shadow-xs"
+              : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+          }`}
+        >
+          All ({counts.all})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab(RecurringSubType.Subscription)}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTab === RecurringSubType.Subscription
+              ? "bg-gray-900 text-white shadow-xs"
+              : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+          }`}
+        >
+          Subscriptions ({counts.sub})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab(RecurringSubType.Investment)}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTab === RecurringSubType.Investment
+              ? "bg-gray-900 text-white shadow-xs"
+              : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+          }`}
+        >
+          Investments ({counts.inv})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab(RecurringSubType.Loan)}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTab === RecurringSubType.Loan
+              ? "bg-gray-900 text-white shadow-xs"
+              : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+          }`}
+        >
+          Loans / EMIs ({counts.loan})
         </button>
       </div>
 
@@ -286,8 +356,14 @@ export function Recurring({
                             )}
                           </div>
                           <div className="min-w-0">
-                            <h3 className="text-sm font-semibold text-gray-900 truncate">
+                            <h3 className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5">
                               {r.merchant || cat?.name || "Recurring"}
+                              {r.type === "outflow" && r.sub_type === RecurringSubType.Investment && (
+                                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">SIP</span>
+                              )}
+                              {r.type === "outflow" && r.sub_type === RecurringSubType.Loan && (
+                                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">EMI</span>
+                              )}
                             </h3>
                             <p className="text-xs text-gray-400">
                               {cat?.name || "Uncategorized"} · <span>{formatFrequency(r.frequency, r.custom_days)}</span>
@@ -377,7 +453,15 @@ export function Recurring({
                             {r.type === "inflow" ? <ArrowUpRight size={18} className="text-emerald-600" /> : <ArrowDownLeft size={18} className="text-red-500" />}
                           </div>
                           <div className="min-w-0">
-                            <h3 className="text-sm font-semibold text-gray-900 truncate">{r.merchant || cat?.name || "Recurring"}</h3>
+                            <h3 className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5">
+                              {r.merchant || cat?.name || "Recurring"}
+                              {r.type === "outflow" && r.sub_type === RecurringSubType.Investment && (
+                                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">SIP</span>
+                              )}
+                              {r.type === "outflow" && r.sub_type === RecurringSubType.Loan && (
+                                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">EMI</span>
+                              )}
+                            </h3>
                             <p className="text-xs text-gray-400">{cat?.name || "Uncategorized"} · <span>{formatFrequency(r.frequency, r.custom_days)}</span></p>
                           </div>
                         </div>

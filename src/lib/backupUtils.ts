@@ -338,12 +338,20 @@ export async function restoreFullDatabaseSnapshot(
         accId = accIdAliasMap.get(accId) || null;
       }
 
+      let resolvedSubType = rawR.sub_type;
+      if (rawR.type === "inflow") {
+        resolvedSubType = undefined;
+      } else if (!resolvedSubType) {
+        resolvedSubType = "subscription";
+      }
+
       primaryRecurring.push({
         ...rawR,
         id: rId,
         category_id: catId,
         account_id: accId,
         amount: Number(rawR.amount) || 0,
+        sub_type: resolvedSubType,
         is_active: rawR.is_active ?? true,
         notifications_enabled: Boolean(rawR.notifications_enabled),
       });
@@ -472,4 +480,49 @@ export async function restoreFullDatabaseSnapshot(
     recurringCount: primaryRecurring.length,
     payeeRulesCount: primaryRules.length,
   };
+}
+
+/**
+ * Completely purges all user data across all tables, cancels all notifications/alarms,
+ * and resets the database back to clean initial seed state.
+ */
+export async function clearAllDatabaseData(): Promise<void> {
+  await ensureInitialized();
+
+  // 1. Cancel all alarms and native notifications
+  try {
+    await cancelAllNotifications();
+  } catch (err) {
+    console.error("Non-fatal error canceling notifications during data wipe:", err);
+  }
+
+  // 2. Clear all tables in an atomic transaction
+  await db.transaction(
+    "rw",
+    [
+      db.transactions,
+      db.categories,
+      db.accounts,
+      db.budgets,
+      db.recurring_transactions,
+      db.payee_rules,
+      db.import_drafts,
+      db.app_settings,
+    ],
+    async () => {
+      await Promise.all([
+        db.transactions.clear(),
+        db.categories.clear(),
+        db.accounts.clear(),
+        db.budgets.clear(),
+        db.recurring_transactions.clear(),
+        db.payee_rules.clear(),
+        db.import_drafts.clear(),
+        db.app_settings.clear(),
+      ]);
+
+      // 3. Seed fresh default categories, accounts, and default settings
+      await db.seedInitialData();
+    }
+  );
 }

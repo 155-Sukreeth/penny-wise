@@ -1,18 +1,21 @@
 import { useState, useEffect, useMemo } from "react";
-import { FileBarChart, Download, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Check, Loader } from "lucide-react";
-import type { AppSettings, TagType } from "@/types";
-import { TAGS, TAG_COLORS } from "@/types";
-import { fetchTransactions, fetchCategories, fetchBudgets, type TransactionWithNames } from "@/lib/data";
-import { formatCurrency, formatCurrencyWithSign, getMonthBounds, getPeriodBounds, periodLabel } from "@/lib/format";
+import { FileBarChart, Download, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Check, Loader, AlertTriangle, FileText, X } from "lucide-react";
+import type { AppSettings, TagType, RecurringTransaction } from "@/types";
+import { TAGS, TAG_COLORS, RecurringSubType } from "@/types";
+import { fetchTransactions, fetchCategories, fetchBudgets, fetchRecurringTransactions, type TransactionWithNames } from "@/lib/data";
+import { formatCurrency, formatCurrencyWithSign, getMonthBounds, getPeriodBounds, periodLabel, formatDate } from "@/lib/format";
 import { exportFile } from "@/lib/exportUtils";
+import { detectPriceHikes, computeSafeToSpend, type PriceHikeAlert, type SafeToSpendBreakdown } from "@/lib/insights";
 import { CategorySpendBreakdown } from "@/components/CategorySpendBreakdown";
 import { BarChart } from "@/components/charts/BarChart";
 import { LineChart } from "@/components/charts/LineChart";
 
-type ReportTab = "summary" | "income" | "expense" | "category" | "payment" | "merchant" | "tag" | "budget";
+type ReportTab = "summary" | "subscriptions" | "investments" | "income" | "expense" | "category" | "tag" | "payment" | "merchant" | "budget";
 
 const TABS: { id: ReportTab; label: string }[] = [
-  { id: "summary", label: "Summary" },
+  { id: "summary", label: "Overview" },
+  { id: "subscriptions", label: "Subscriptions" },
+  { id: "investments", label: "Investments" },
   { id: "income", label: "Income" },
   { id: "expense", label: "Expense" },
   { id: "category", label: "Category" },
@@ -27,12 +30,34 @@ export function Reports({ settings }: { settings: AppSettings }) {
   const [period, setPeriod] = useState("month");
   const [transactions, setTransactions] = useState<TransactionWithNames[]>([]);
   const [loading, setLoading] = useState(true);
+  const [priceHikes, setPriceHikes] = useState<PriceHikeAlert[]>([]);
+  const [safeToSpend, setSafeToSpend] = useState<SafeToSpendBreakdown | null>(null);
+  const [activeSubscriptions, setActiveSubscriptions] = useState<RecurringTransaction[]>([]);
+  const [activeInvestments, setActiveInvestments] = useState<RecurringTransaction[]>([]);
+  const [selectedSubForHistory, setSelectedSubForHistory] = useState<PriceHikeAlert | null>(null);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [reportModules, setReportModules] = useState({
+    executiveSummary: true,
+    categoryBreakdown: true,
+    subscriptions: true,
+    investments: true,
+    transactionsLedger: false,
+  });
 
   useEffect(() => {
     const { start, end } = getPeriodBounds(period);
     setLoading(true);
-    fetchTransactions({ startDate: start, endDate: end, limit: 5000 }).then(data => {
-      setTransactions(data);
+    Promise.all([
+      fetchTransactions({ startDate: start, endDate: end, limit: 5000 }),
+      detectPriceHikes(),
+      computeSafeToSpend(),
+      fetchRecurringTransactions(),
+    ]).then(([txs, hikes, s2s, recs]) => {
+      setTransactions(txs);
+      setPriceHikes(hikes);
+      setSafeToSpend(s2s);
+      setActiveSubscriptions(recs.filter(r => r.is_active && r.type === "outflow" && (!r.sub_type || r.sub_type === RecurringSubType.Subscription)));
+      setActiveInvestments(recs.filter(r => r.is_active && r.type === "outflow" && r.sub_type === RecurringSubType.Investment));
       setLoading(false);
     });
   }, [period]);
@@ -166,10 +191,101 @@ export function Reports({ settings }: { settings: AppSettings }) {
     }
   };
 
+  const generateCustomReport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const lines: string[] = [];
+      lines.push(`================================================================`);
+      lines.push(`PENNYWISE FINANCIAL INSIGHTS REPORT`);
+      lines.push(`Generated On: ${new Date().toLocaleString()}`);
+      lines.push(`Period: ${periodLabel(period)}`);
+      lines.push(`================================================================\n`);
+
+      if (reportModules.executiveSummary) {
+        lines.push(`-- EXECUTIVE CASH FLOW SUMMARY --`);
+        lines.push(`Total Inflow:      ${formatCurrency(stats.totalInflow, settings)}`);
+        lines.push(`Total Outflow:     ${formatCurrency(stats.totalOutflow, settings)}`);
+        lines.push(`Net Cash Flow:     ${formatCurrencyWithSign(stats.totalInflow - stats.totalOutflow, settings)}`);
+        if (safeToSpend) {
+          lines.push(`Safe to Spend:     ${formatCurrency(safeToSpend.safeToSpend, settings)} (Next ${safeToSpend.daysRemainingInMonth}d)`);
+          lines.push(`Pending Commitments: ${formatCurrency(safeToSpend.upcomingCommitments, settings)}`);
+        }
+        lines.push(`\n`);
+      }
+
+      if (reportModules.subscriptions) {
+        lines.push(`-- SUBSCRIPTIONS & FIXED SERVICES --`);
+        const subTotal = activeSubscriptions.reduce((s, r) => s + Number(r.amount), 0);
+        lines.push(`Active Subscriptions: ${activeSubscriptions.length} items`);
+        lines.push(`Monthly Commitment:   ${formatCurrency(subTotal, settings)}`);
+        activeSubscriptions.forEach((sub, i) => {
+          lines.push(`  ${i + 1}. ${sub.merchant || "Subscription"} - ${formatCurrency(sub.amount, settings)}`);
+        });
+        if (priceHikes.length > 0) {
+          lines.push(`\nPrice Increases Detected:`);
+          priceHikes.forEach(h => {
+            lines.push(`  * ${h.merchant}: ${formatCurrency(h.previousAmount, settings)} -> ${formatCurrency(h.currentAmount, settings)} (+${h.changePercent}%)`);
+          });
+        }
+        lines.push(`\n`);
+      }
+
+      if (reportModules.investments) {
+        lines.push(`-- WEALTH & INVESTMENTS (SIPs) --`);
+        const invTotal = activeInvestments.reduce((s, r) => s + Number(r.amount), 0);
+        const savingsRate = stats.totalInflow > 0 ? Math.round((invTotal / stats.totalInflow) * 100) : 0;
+        lines.push(`Active SIPs:      ${activeInvestments.length} items`);
+        lines.push(`Monthly Deployed: ${formatCurrency(invTotal, settings)}`);
+        lines.push(`Savings Rate:     ${savingsRate}% of inflow`);
+        activeInvestments.forEach((inv, i) => {
+          lines.push(`  ${i + 1}. ${inv.merchant || "Investment"} - ${formatCurrency(inv.amount, settings)}`);
+        });
+        lines.push(`\n`);
+      }
+
+      if (reportModules.categoryBreakdown) {
+        lines.push(`-- CATEGORY BREAKDOWN --`);
+        categoryData.slice(0, 10).forEach((cat, i) => {
+          lines.push(`  #${i + 1} ${cat.name}: Outflow ${formatCurrency(cat.outflow, settings)} (${cat.count} txns)`);
+        });
+        lines.push(`\n`);
+      }
+
+      if (reportModules.transactionsLedger) {
+        lines.push(`-- ITEMISED TRANSACTIONS LEDGER --`);
+        lines.push(`Date | Type | Amount | Category | Merchant | Tag`);
+        transactions.forEach(t => {
+          lines.push(`${t.date} | ${t.type} | ${t.amount} | ${t.category_name || "Uncategorized"} | ${t.merchant || ""} | ${t.tag}`);
+        });
+        lines.push(`\n`);
+      }
+
+      const content = lines.join("\n");
+      const filename = `PennyWise-Report-${period}-${new Date().toISOString().slice(0, 10)}.txt`;
+      const result = await exportFile({
+        content,
+        filename,
+        mimeType: "text/plain",
+        dialogTitle: `Export ${periodLabel(period)} Insights Report`,
+      });
+
+      if (result.success) {
+        setExportMsg(result.method === "shared" ? "Report generated and shared!" : "Report generated and saved!");
+        setTimeout(() => setExportMsg(null), 3000);
+        setShowGenerateModal(false);
+      }
+    } catch (err) {
+      console.error("Failed to generate report:", err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="px-4 pt-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">Reports</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">Insights</h1>
         <div className="flex items-center justify-center py-16">
           <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-700 rounded-full animate-spin" />
         </div>
@@ -181,16 +297,17 @@ export function Reports({ settings }: { settings: AppSettings }) {
     <div className="px-4 pt-6 pb-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Reports</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+            Insights
+          </h1>
           <p className="text-sm text-gray-500 mt-0.5">{periodLabel(period)}</p>
         </div>
         <button
-          onClick={exportCSV}
-          disabled={exporting}
-          className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-medium text-gray-600 active:scale-95 transition-transform disabled:opacity-50"
+          onClick={() => setShowGenerateModal(true)}
+          className="flex items-center gap-1.5 px-3 py-2 bg-gray-900 text-white rounded-xl text-xs font-semibold shadow-xs hover:bg-black active:scale-95 transition-all"
         >
-          {exporting ? <Loader size={14} className="animate-spin" /> : <Download size={14} />}
-          Export
+          <FileText size={14} />
+          Generate Report
         </button>
       </div>
 
@@ -234,6 +351,159 @@ export function Reports({ settings }: { settings: AppSettings }) {
         </div>
       ) : (
         <div className="space-y-4">
+          {tab === "subscriptions" && (
+            <div className="space-y-4">
+              {/* Subscriptions Overview card */}
+              <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Active Subscriptions</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">Recurring lifestyle & service charges</p>
+                  </div>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">
+                    {activeSubscriptions.length} active
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="p-3 rounded-xl bg-gray-50">
+                    <span className="text-[11px] text-gray-400 font-medium block">Monthly Burn</span>
+                    <span className="text-base font-bold text-gray-900">
+                      {formatCurrency(activeSubscriptions.reduce((s, r) => s + Number(r.amount), 0), settings)}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-gray-50">
+                    <span className="text-[11px] text-gray-400 font-medium block">Annualized Cost</span>
+                    <span className="text-base font-bold text-gray-900">
+                      {formatCurrency(activeSubscriptions.reduce((s, r) => s + Number(r.amount), 0) * 12, settings)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Price Increases Section */}
+              {priceHikes.length > 0 ? (
+                <div className="bg-amber-50/80 border border-amber-200/90 rounded-2xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertTriangle size={16} className="text-amber-700 flex-shrink-0" />
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+                        Price Increases Detected ({priceHikes.length})
+                      </h4>
+                      <p className="text-[11px] text-amber-800">
+                        Subscriptions with higher rates compared to initial logs
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {priceHikes.map(hike => (
+                      <div
+                        key={hike.recurringId}
+                        onClick={() => setSelectedSubForHistory(hike)}
+                        className="bg-white/90 hover:bg-white rounded-xl p-3 border border-amber-200/60 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-all"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-xs text-gray-900 block truncate">{hike.merchant}</span>
+                          <span className="text-[11px] text-gray-500">
+                            Was {formatCurrency(hike.previousAmount, settings)} → Now {formatCurrency(hike.currentAmount, settings)}
+                          </span>
+                        </div>
+                        <div className="text-right flex-shrink-0 ml-2">
+                          <span className="inline-block text-[11px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
+                            +{hike.changePercent}%
+                          </span>
+                          <span className="text-[10px] text-gray-400 block mt-0.5">tap for history</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center py-6">
+                  <p className="text-xs text-gray-500 font-medium">No price increases detected on active subscriptions.</p>
+                  <p className="text-[11px] text-gray-400 mt-1">Rates are consistent with past ledger entries.</p>
+                </div>
+              )}
+
+              {/* Subscriptions List */}
+              <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">
+                  All Active Subscriptions
+                </h4>
+                {activeSubscriptions.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4">No subscriptions configured yet in Recurring.</p>
+                ) : (
+                  <div className="space-y-2 divide-y divide-gray-100">
+                    {activeSubscriptions.map(sub => (
+                      <div key={sub.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
+                        <div className="min-w-0 flex-1 pr-2">
+                          <span className="font-semibold text-gray-900 block truncate">{sub.merchant || "Subscription"}</span>
+                          <span className="text-gray-400 text-[11px]">Due {formatDate(sub.next_date, settings)}</span>
+                        </div>
+                        <span className="font-bold text-gray-900 flex-shrink-0">{formatCurrency(sub.amount, settings)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {tab === "investments" && (
+            <div className="space-y-4">
+              {/* Investments Summary */}
+              <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Capital Deployed</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">Recurring SIPs & wealth allocations</p>
+                  </div>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">
+                    {activeInvestments.length} SIPs
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
+                    <span className="text-[11px] text-gray-500 font-medium block">Monthly Investment</span>
+                    <span className="text-base font-bold text-gray-900">
+                      {formatCurrency(activeInvestments.reduce((s, r) => s + Number(r.amount), 0), settings)}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
+                    <span className="text-[11px] text-gray-500 font-medium block">Savings / Investment Rate</span>
+                    <span className="text-base font-bold text-gray-900">
+                      {stats.totalInflow > 0
+                        ? `${Math.round((activeInvestments.reduce((s, r) => s + Number(r.amount), 0) / stats.totalInflow) * 100)}%`
+                        : "0%"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Active SIPs list */}
+              <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">
+                  Recurring Investment Commitments
+                </h4>
+                {activeInvestments.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4">No recurring investments set up yet.</p>
+                ) : (
+                  <div className="space-y-2 divide-y divide-gray-100">
+                    {activeInvestments.map(inv => (
+                      <div key={inv.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
+                        <div className="min-w-0 flex-1 pr-2">
+                          <span className="font-semibold text-gray-900 block truncate">{inv.merchant || "Investment SIP"}</span>
+                          <span className="text-gray-400 text-[11px]">Next debit {formatDate(inv.next_date, settings)}</span>
+                        </div>
+                        <span className="font-bold text-gray-900 flex-shrink-0">{formatCurrency(inv.amount, settings)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {tab === "summary" && (
             <>
               <div className="grid grid-cols-2 gap-3">
@@ -390,6 +660,181 @@ export function Reports({ settings }: { settings: AppSettings }) {
           {tab === "budget" && (
             <BudgetReport settings={settings} />
           )}
+        </div>
+      )}
+
+      {/* Subscription Price History Modal */}
+      {selectedSubForHistory && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto slim-scrollbar animate-in slide-in-from-bottom">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">{selectedSubForHistory.merchant}</h3>
+                <p className="text-xs text-gray-400">Subscription Price Trajectory</p>
+              </div>
+              <button
+                onClick={() => setSelectedSubForHistory(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-900"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="py-4">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-50 border border-amber-200/80 mb-4">
+                <div>
+                  <span className="text-[11px] text-amber-800 font-semibold block">Detected Increase</span>
+                  <span className="text-base font-bold text-amber-950">
+                    +{formatCurrency(selectedSubForHistory.changeAmount, settings)} (+{selectedSubForHistory.changePercent}%)
+                  </span>
+                </div>
+                <div className="text-right text-xs text-amber-800 font-medium">
+                  {formatCurrency(selectedSubForHistory.previousAmount, settings)} → {formatCurrency(selectedSubForHistory.currentAmount, settings)}
+                </div>
+              </div>
+
+              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-2">
+                Logged Rate History ({selectedSubForHistory.history.length})
+              </h4>
+              <div className="space-y-2 max-h-48 overflow-y-auto slim-scrollbar pr-1 divide-y divide-gray-100">
+                {selectedSubForHistory.history.map((h, i) => (
+                  <div key={i} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
+                    <span className="text-gray-500">{formatDate(h.date, settings)}</span>
+                    <span className="font-bold text-gray-900">{formatCurrency(h.amount, settings)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSelectedSubForHistory(null)}
+              className="w-full py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Custom Insights Report Modal */}
+      {showGenerateModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto slim-scrollbar animate-in slide-in-from-bottom">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-gray-900 text-white flex items-center justify-center">
+                  <FileText size={16} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Generate Report</h3>
+                  <p className="text-xs text-gray-400">Customized summary from Insights</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGenerateModal(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-900"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 uppercase tracking-wider block text-[10px] mb-1.5">
+                  Report Timeframe
+                </label>
+                <div className="flex gap-1.5">
+                  {["month", "last_month", "year"].map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setPeriod(p)}
+                      className={`flex-1 py-2 rounded-xl font-semibold border transition-all ${
+                        period === p
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-gray-50 text-gray-600 border-gray-200"
+                      }`}
+                    >
+                      {periodLabel(p)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 uppercase tracking-wider block text-[10px] mb-2">
+                  Sections to Include
+                </label>
+                <div className="space-y-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={reportModules.executiveSummary}
+                      onChange={e => setReportModules({ ...reportModules, executiveSummary: e.target.checked })}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-0"
+                    />
+                    <span className="font-semibold text-gray-800">Executive Summary (Cash Flow & Safe-to-Spend)</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={reportModules.subscriptions}
+                      onChange={e => setReportModules({ ...reportModules, subscriptions: e.target.checked })}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-0"
+                    />
+                    <span className="font-semibold text-gray-800">Subscriptions Audit & Price Hikes</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={reportModules.investments}
+                      onChange={e => setReportModules({ ...reportModules, investments: e.target.checked })}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-0"
+                    />
+                    <span className="font-semibold text-gray-800">Investments & Capital Deployed (SIPs)</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={reportModules.categoryBreakdown}
+                      onChange={e => setReportModules({ ...reportModules, categoryBreakdown: e.target.checked })}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-0"
+                    />
+                    <span className="font-semibold text-gray-800">Category Spend Breakdown (Top 10)</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={reportModules.transactionsLedger}
+                      onChange={e => setReportModules({ ...reportModules, transactionsLedger: e.target.checked })}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-0"
+                    />
+                    <span className="font-semibold text-gray-800">Itemized Transactions Ledger</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={exportCSV}
+                  disabled={exporting}
+                  className="flex-1 py-3 bg-white border border-gray-200 text-gray-700 font-semibold rounded-xl flex items-center justify-center gap-1.5 hover:bg-gray-50 active:scale-[0.99] transition-all"
+                >
+                  <Download size={14} />
+                  Raw CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={generateCustomReport}
+                  disabled={exporting}
+                  className="flex-1 py-3 bg-gray-900 text-white font-semibold rounded-xl flex items-center justify-center gap-1.5 hover:bg-black active:scale-[0.99] transition-all"
+                >
+                  {exporting ? <Loader size={14} className="animate-spin" /> : <FileText size={14} />}
+                  Export Report
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -92,9 +92,16 @@ export enum RecurringFrequency {
   Custom = "custom",
 }
 
+export enum RecurringSubType {
+  Subscription = "subscription",
+  Investment = "investment",
+  Loan = "loan",
+}
+
 export interface RecurringTransaction {
   id: string;
   type: TransactionType;
+  sub_type?: RecurringSubType;
   amount: number;
   category_id: string | null;
   account_id: string | null;

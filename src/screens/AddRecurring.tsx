@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { X, ArrowDownLeft, ArrowUpRight, Bell, Tag as TagIcon } from "lucide-react";
 import { Select } from "@/components/Select";
 import type { AppSettings, Category } from "@/types";
-import { TransactionType, TagType, RecurringFrequency, TAGS, TAG_BG_COLORS } from "@/types";
+import { TransactionType, TagType, RecurringFrequency, RecurringSubType, TAGS, TAG_BG_COLORS } from "@/types";
 import {
   createRecurringTransaction, updateRecurringTransaction,
   fetchCategories, fetchAccounts
@@ -22,6 +22,7 @@ interface AddRecurringProps {
 
 export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurringProps) {
   const [type, setType] = useState<TransactionType>(TransactionType.Outflow);
+  const [subType, setSubType] = useState<RecurringSubType | null>(RecurringSubType.Subscription);
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
         const item = await db.recurring_transactions.get(editId);
         if (item) {
           setType(item.type);
+          setSubType(item.type === TransactionType.Outflow ? (item.sub_type || RecurringSubType.Subscription) : null);
           setAmount(item.amount ? formatInputAmount(String(item.amount), settings.currency) : "");
           setCategoryId(item.category_id);
           setAccountId(item.account_id);
@@ -110,6 +112,10 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
     if (firstCat) {
       setCategoryId(firstCat.id);
       setTag(firstCat.tag);
+    }
+    if (newType === TransactionType.Outflow && !subType) {
+      setSubType(RecurringSubType.Subscription);
+      setTag(TagType.Want);
     }
   };
 
@@ -174,6 +180,7 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
       if (editId) {
         await updateRecurringTransaction(editId, {
           type,
+          sub_type: type === TransactionType.Outflow ? (subType || RecurringSubType.Subscription) : undefined,
           amount: amt,
           category_id: categoryId,
           account_id: accountId,
@@ -202,6 +209,7 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
         const firstDueDate = startDate;
         const created = await createRecurringTransaction({
           type,
+          sub_type: type === TransactionType.Outflow ? (subType || RecurringSubType.Subscription) : undefined,
           amount: amt,
           category_id: categoryId,
           account_id: accountId,
@@ -259,30 +267,83 @@ export function AddRecurring({ settings, editId, onDone, onCancel }: AddRecurrin
       </div>
 
       {/* Type Toggle */}
-      <div className="flex gap-2 mb-5">
+      <div className="flex gap-2 mb-3">
         <button
           onClick={() => handleTypeChange(TransactionType.Outflow)}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-xs transition-all ${
             type === TransactionType.Outflow
               ? "bg-red-500 text-white shadow-sm"
               : "bg-white text-gray-500 border border-gray-200"
           }`}
         >
-          <ArrowDownLeft size={18} />
+          <ArrowDownLeft size={16} />
           Expense
         </button>
         <button
           onClick={() => handleTypeChange(TransactionType.Inflow)}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-xs transition-all ${
             type === TransactionType.Inflow
               ? "bg-emerald-500 text-white shadow-sm"
               : "bg-white text-gray-500 border border-gray-200"
           }`}
         >
-          <ArrowUpRight size={18} />
+          <ArrowUpRight size={16} />
           Income
         </button>
       </div>
+
+      {/* Sub-type Selection: Only for Expense (Outflow) */}
+      {type === TransactionType.Outflow && (
+        <div className="mb-5 bg-white rounded-2xl p-2.5 border border-gray-100 shadow-sm">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-2 px-1">
+            Recurring Category
+          </label>
+          <div className="grid grid-cols-3 gap-1.5 bg-gray-50 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => {
+                setSubType(RecurringSubType.Subscription);
+                setTag(TagType.Want);
+              }}
+              className={`py-2 px-1 rounded-lg text-xs font-semibold text-center transition-all ${
+                subType === RecurringSubType.Subscription
+                  ? "bg-white text-gray-900 shadow-xs"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Subscription
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSubType(RecurringSubType.Investment);
+                setTag(TagType.Invest);
+              }}
+              className={`py-2 px-1 rounded-lg text-xs font-semibold text-center transition-all ${
+                subType === RecurringSubType.Investment
+                  ? "bg-white text-gray-900 shadow-xs"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Investment
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSubType(RecurringSubType.Loan);
+                setTag(TagType.Need);
+              }}
+              className={`py-2 px-1 rounded-lg text-xs font-semibold text-center transition-all ${
+                subType === RecurringSubType.Loan
+                  ? "bg-white text-gray-900 shadow-xs"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Loan / EMI
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4 flex-1">
         {/* Card 1: Amount */}
