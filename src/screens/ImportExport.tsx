@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, ArrowDownLeft, ArrowUpRight, CheckSquare, Square, ChevronRight } from "lucide-react";
+import { Download, Upload, FileText, Sparkles, AlertCircle, Check, X, Loader, ArrowDownLeft, ArrowUpRight, CheckSquare, Square, ChevronRight, Trash2 } from "lucide-react";
 import type { AppSettings, ImportDraft, StagedTransactionRow } from "@/types";
 import { TransactionType, TagType, ImportSource, ImportDraftMode, TAG_BG_COLORS } from "@/types";
 import { fetchTransactions, fetchCategories, fetchAccounts, createTransaction, createCategory, createAccount, type TransactionWithNames } from "@/lib/data";
@@ -11,6 +11,7 @@ import {
   createFullDatabaseSnapshot,
   restoreFullDatabaseSnapshot,
   validateBackupPayload,
+  clearAllDatabaseData,
   type DatabaseBackupPayload,
 } from "@/lib/backupUtils";
 
@@ -25,6 +26,8 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
   const [activeDraft, setActiveDraft] = useState<ImportDraft | null>(null);
   const [pendingMode, setPendingMode] = useState<ImportMode | null>(null);
   const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [pendingRestore, setPendingRestore] = useState<{
     backup: DatabaseBackupPayload;
     fileName: string;
@@ -421,6 +424,24 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
     }
   };
 
+  const handleConfirmDeleteAll = async () => {
+    if (deleteConfirmationText.trim().toUpperCase() !== "DELETE") return;
+    setLoading(true);
+    setError(null);
+    try {
+      await clearAllDatabaseData();
+      setShowDeleteModal(false);
+      setDeleteConfirmationText("");
+      setLoading(false);
+      setMode("menu");
+      setSuccessMsg("All data has been completely erased. Database reset to clean initial state.");
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (e) {
+      setError("Failed to delete all data: " + (e instanceof Error ? e.message : "deletion error"));
+      setLoading(false);
+    }
+  };
+
   const updateRowsAndPersist = (updater: (prev: StagedTransactionRow[]) => StagedTransactionRow[]) => {
     setPreviewRows(prev => {
       const updated = updater(prev);
@@ -613,6 +634,17 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
             className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleRestoreFileSelected(f); e.target.value = ""; }}
           />
+
+          <SectionTitle>Danger Zone</SectionTitle>
+          <ActionCard
+            icon={<Trash2 size={20} className="text-red-500" />}
+            title="Delete All Data"
+            subtitle="Permanently erase all transactions, accounts & settings"
+            onClick={() => {
+              setDeleteConfirmationText("");
+              setShowDeleteModal(true);
+            }}
+          />
         </div>
 
         {/* Overwrite Protection Warning Modal */}
@@ -710,6 +742,69 @@ export function ImportExport({ settings }: { settings: AppSettings }) {
                   type="button"
                   disabled={loading}
                   onClick={() => setPendingRestore(null)}
+                  className="w-full py-2.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition text-center"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete All Data Modal */}
+        {showDeleteModal && (
+          <div
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in"
+            onClick={() => !loading && setShowDeleteModal(false)}
+          >
+            <div
+              className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-4 text-red-600">
+                <Trash2 size={24} />
+              </div>
+
+              <h3 className="text-base font-bold text-gray-900 mb-1.5">
+                Delete All Data?
+              </h3>
+
+              <p className="text-xs text-gray-500 leading-relaxed mb-4">
+                This will permanently erase all transactions, custom categories, accounts, budgets, and recurring schedules from this device. Default settings and seeded categories will be restored.
+              </p>
+
+              <div className="text-xs text-red-700 bg-red-50 border border-red-200/80 rounded-xl p-3 mb-4 font-medium leading-relaxed">
+                ⚠️ This action is irreversible. If you need your data later, make a Full Backup first.
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1.5">
+                  Type <span className="font-mono font-bold text-red-600">DELETE</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmationText}
+                  onChange={e => setDeleteConfirmationText(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono font-semibold text-gray-900 outline-none focus:border-red-500 transition-colors uppercase tracking-wider"
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={loading || deleteConfirmationText.trim().toUpperCase() !== "DELETE"}
+                  onClick={handleConfirmDeleteAll}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-semibold shadow-xs active:scale-[0.98] transition flex items-center justify-center gap-1.5"
+                >
+                  {loading ? <Loader className="animate-spin" size={16} /> : "Permanently Delete Everything"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setShowDeleteModal(false)}
                   className="w-full py-2.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition text-center"
                 >
                   Cancel
